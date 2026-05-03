@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { seedCrews, seedJobs, seedUsers } from "./seed-data.js";
 
@@ -59,6 +60,16 @@ function hydrateLegacyJobData(db) {
       attachment_name = COALESCE(attachment_name, ''),
       attachment_path = COALESCE(attachment_path, ''),
       attachment_mime = COALESCE(attachment_mime, '')
+  `);
+  db.exec(`
+    INSERT INTO job_update_attachments (job_update_id, attachment_name, attachment_path, attachment_mime, created_at)
+    SELECT id, attachment_name, attachment_path, attachment_mime, created_at
+    FROM job_updates
+    WHERE attachment_path != ''
+      AND NOT EXISTS (
+        SELECT 1 FROM job_update_attachments
+        WHERE job_update_attachments.job_update_id = job_updates.id
+      )
   `);
 }
 
@@ -163,6 +174,15 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       author_name TEXT NOT NULL,
       author_role TEXT NOT NULL,
       note TEXT NOT NULL DEFAULT '',
+      attachment_name TEXT NOT NULL DEFAULT '',
+      attachment_path TEXT NOT NULL DEFAULT '',
+      attachment_mime TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS job_update_attachments (
+      id INTEGER PRIMARY KEY,
+      job_update_id INTEGER NOT NULL REFERENCES job_updates(id) ON DELETE CASCADE,
       attachment_name TEXT NOT NULL DEFAULT '',
       attachment_path TEXT NOT NULL DEFAULT '',
       attachment_mime TEXT NOT NULL DEFAULT '',
@@ -442,7 +462,7 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         return [];
       }
       const placeholders = jobIds.map(() => "?").join(", ");
-      return db.prepare(`
+      const updates = db.prepare(`
         SELECT
           id,
           job_id AS jobId,
@@ -457,12 +477,53 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         WHERE job_id IN (${placeholders})
         ORDER BY datetime(created_at) DESC, id DESC
       `).all(...jobIds);
+      const updateIds = updates.map((update) => update.id);
+      const attachmentPlaceholders = updateIds.map(() => "?").join(", ");
+      const attachments = updateIds.length
+        ? db.prepare(`
+          SELECT
+            id,
+            job_update_id AS jobUpdateId,
+            attachment_name AS attachmentName,
+            attachment_path AS attachmentPath,
+            attachment_mime AS attachmentMime,
+            created_at AS createdAt
+          FROM job_update_attachments
+          WHERE job_update_id IN (${attachmentPlaceholders})
+          ORDER BY id ASC
+        `).all(...updateIds)
+        : [];
+      const attachmentsByUpdate = new Map();
+      attachments.forEach((attachment) => {
+        if (!attachmentsByUpdate.has(attachment.jobUpdateId)) {
+          attachmentsByUpdate.set(attachment.jobUpdateId, []);
+        }
+        attachmentsByUpdate.get(attachment.jobUpdateId).push(attachment);
+      });
+      return updates.map((update) => ({
+        ...update,
+        attachments: attachmentsByUpdate.get(update.id) || []
+      }));
     },
-    async createJobUpdate({ jobId, authorName, authorRole, note, attachmentName, attachmentPath, attachmentMime }) {
+    async createJobUpdate({ jobId, authorName, authorRole, note, attachments }) {
       const result = db.prepare(`
         INSERT INTO job_updates (job_id, author_name, author_role, note, attachment_name, attachment_path, attachment_mime, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(jobId, authorName, authorRole, note || "", attachmentName || "", attachmentPath || "", attachmentMime || "", nowIso());
+      `).run(jobId, authorName, authorRole, note || "", "", "", "", nowIso());
+      const updateId = Number(result.lastInsertRowid);
+      const insertAttachment = db.prepare(`
+        INSERT INTO job_update_attachments (job_update_id, attachment_name, attachment_path, attachment_mime, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      (attachments || []).forEach((attachment) => {
+        insertAttachment.run(
+          updateId,
+          attachment.attachmentName || "",
+          attachment.attachmentPath || "",
+          attachment.attachmentMime || "",
+          nowIso()
+        );
+      });
       return Number(result.lastInsertRowid);
     }
   };

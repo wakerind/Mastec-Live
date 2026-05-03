@@ -1,7 +1,7 @@
 (function () {
   const authStorageKey = "fieldsight-auth-token";
-  const intakeStages = ["Uploaded", "Review", "Approved", "Scheduled", "Assigned"];
-  const fieldStages = ["Assigned", "Acknowledged", "En Route", "In Progress", "Blocked", "Completed", "Closed"];
+  const lifecycleStages = ["Uploaded", "Admin Approved", "Assigned", "Accepted", "Scheduled", "In Progress", "Completed", "Admin Reviewed", "Closed"];
+  const maxAttachmentBatchBytes = 30 * 1024 * 1024;
 
   let authToken = localStorage.getItem(authStorageKey) || "";
   let appState = {
@@ -24,7 +24,7 @@
     deadlineList: document.getElementById("deadlineList"),
     alertList: document.getElementById("alertList"),
     masterGrid: document.getElementById("masterGrid"),
-    assignmentList: document.getElementById("assignmentList"),
+    stageBoard: document.getElementById("stageBoard"),
     crewList: document.getElementById("crewList"),
     fieldList: document.getElementById("fieldList"),
     kpiList: document.getElementById("kpiList"),
@@ -55,6 +55,14 @@
     updateForm: document.getElementById("updateForm"),
     closeUpdateDialog: document.getElementById("closeUpdateDialog"),
     cancelUpdateDialog: document.getElementById("cancelUpdateDialog"),
+    jobDetailDialog: document.getElementById("jobDetailDialog"),
+    jobDetailForm: document.getElementById("jobDetailForm"),
+    closeJobDetailDialog: document.getElementById("closeJobDetailDialog"),
+    cancelJobDetailDialog: document.getElementById("cancelJobDetailDialog"),
+    jobDetailSummary: document.getElementById("jobDetailSummary"),
+    jobDetailUpdates: document.getElementById("jobDetailUpdates"),
+    jobDetailStageSelect: document.getElementById("jobDetailStageSelect"),
+    jobDetailAssigneeSelect: document.getElementById("jobDetailAssigneeSelect"),
     demoCreds: document.getElementById("demoCreds"),
     loginError: document.getElementById("loginError"),
     inviteError: document.getElementById("inviteError")
@@ -102,13 +110,7 @@
   }
 
   function getLifecycleStage(job) {
-    if (job.blockerReason && !["Completed", "Closed"].includes(job.fieldStatus)) {
-      return "Blocked";
-    }
-    if (job.assignedTo) {
-      return job.fieldStatus || "Assigned";
-    }
-    return job.intakeStatus || "Uploaded";
+    return job.lifecycleStage || "Uploaded";
   }
 
   function getMargin(job) {
@@ -117,7 +119,7 @@
 
   function getStageSummary(job) {
     const lifecycle = getLifecycleStage(job);
-    return `${lifecycle}${job.blockerReason ? " | Blocker active" : ""}`;
+    return `${lifecycle}${job.blockerReason ? ` | Blocked at ${job.blockerStage || lifecycle}` : ""}`;
   }
 
   function getJobUpdates(jobId) {
@@ -138,28 +140,40 @@
               <span class="muted">${formatDateTime(update.createdAt)}</span>
             </div>
             <p>${update.note}</p>
-            ${update.attachmentPath ? `<a class="update-link" href="${update.attachmentPath}" target="_blank" rel="noreferrer">Open ${update.attachmentName || "attachment"}</a>` : ""}
+            ${(update.attachments || []).length ? `
+              <div class="attachment-list">
+                ${(update.attachments || []).map((attachment) => `
+                  <a class="update-link" href="${attachment.attachmentPath}" target="_blank" rel="noreferrer">Open ${attachment.attachmentName || "attachment"}</a>
+                `).join("")}
+              </div>
+            ` : (update.attachmentPath ? `<a class="update-link" href="${update.attachmentPath}" target="_blank" rel="noreferrer">Open ${update.attachmentName || "attachment"}</a>` : "")}
           </article>
         `).join("")}
       </div>
     `;
   }
 
-  async function fileToPayload(file) {
-    if (!file) {
-      return null;
+  async function filesToPayload(fileList) {
+    const files = Array.from(fileList || []);
+    const totalBytes = files.reduce((sum, file) => sum + Number(file.size || 0), 0);
+    if (totalBytes > maxAttachmentBatchBytes) {
+      throw new Error("Combined attachments exceed 30MB. Please split them into smaller batches.");
     }
-    const arrayBuffer = await file.arrayBuffer();
-    let binary = "";
-    const bytes = new Uint8Array(arrayBuffer);
-    for (let index = 0; index < bytes.length; index += 1) {
-      binary += String.fromCharCode(bytes[index]);
+    const payloads = [];
+    for (const file of files) {
+      const arrayBuffer = await file.arrayBuffer();
+      let binary = "";
+      const bytes = new Uint8Array(arrayBuffer);
+      for (let index = 0; index < bytes.length; index += 1) {
+        binary += String.fromCharCode(bytes[index]);
+      }
+      payloads.push({
+        fileName: file.name,
+        mimeType: file.type || "application/octet-stream",
+        contentBase64: btoa(binary)
+      });
     }
-    return {
-      fileName: file.name,
-      mimeType: file.type || "application/octet-stream",
-      contentBase64: btoa(binary)
-    };
+    return payloads;
   }
 
   function setToken(token) {
@@ -243,7 +257,7 @@
   function renderMetrics() {
     const jobs = appState.jobs;
     const assigned = jobs.filter((job) => job.assignedTo).length;
-    const blocked = jobs.filter((job) => getLifecycleStage(job) === "Blocked").length;
+    const blocked = jobs.filter((job) => Boolean(job.blockerReason)).length;
     const totalValue = jobs.reduce((sum, job) => sum + Number(job.jobValue || 0), 0);
     const margin = jobs.reduce((sum, job) => sum + getMargin(job), 0);
 
@@ -291,7 +305,7 @@
   function renderAlerts() {
     const items = appState.jobs.filter((job) => {
       const window = getAssignmentWindow(job);
-      return window.label !== "Open" || getLifecycleStage(job) === "Blocked" || getMargin(job) < 0;
+      return window.label !== "Open" || Boolean(job.blockerReason) || getMargin(job) < 0;
     }).slice(0, 6);
 
     elements.alertList.innerHTML = items.length ? items.map((job) => {
@@ -302,7 +316,7 @@
             <strong>${job.title}</strong>
             <span class="status ${getStatusClass(getLifecycleStage(job))}">${getLifecycleStage(job)}</span>
           </div>
-          <p class="muted">${job.blockerReason || job.issue}</p>
+          <p class="muted">${job.blockerReason ? `${job.blockerStage || job.lifecycleStage} | ${job.blockerReason}` : job.issue}</p>
           <div class="job-tags">
             <span class="pill">${window.label}</span>
             <span class="pill">${formatCurrency(job.jobValue)}</span>
@@ -316,15 +330,13 @@
     const actions = [];
     const lifecycle = getLifecycleStage(job);
 
-    if (intakeStages.includes(lifecycle) && lifecycle !== "Assigned" && lifecycle !== "Blocked") {
-      actions.push(`<button class="action-btn" data-action="advance-admin-stage" data-id="${job.id}">Advance</button>`);
+    actions.push(`<button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>`);
+    if (!["Closed"].includes(lifecycle)) {
+      actions.push(`<button class="action-btn" data-action="advance-stage" data-id="${job.id}">Advance</button>`);
     }
     if (!job.assignedTo) {
       actions.push(`<button class="action-btn" data-action="assign-fast" data-id="${job.id}">Quick assign</button>`);
       actions.push(`<button class="action-btn" data-action="assign-job" data-id="${job.id}">Choose assignee</button>`);
-    }
-    if (job.assignedTo && !["Completed", "Closed"].includes(lifecycle)) {
-      actions.push(`<button class="action-btn" data-action="advance-status" data-id="${job.id}">Next field stage</button>`);
     }
     if (job.blockerReason) {
       actions.push(`<button class="action-btn" data-action="clear-blocker" data-id="${job.id}">Clear blocker</button>`);
@@ -378,7 +390,7 @@
               <td>${formatCurrency(job.laborCost)}</td>
               <td>${Number(job.plannedHours || 0)}h</td>
               <td>${Number(job.actualHours || 0)}h</td>
-              <td class="sheet-blocker-cell">${job.blockerReason || "<span class=\"muted\">Clear</span>"}</td>
+              <td class="sheet-blocker-cell">${job.blockerReason ? `${job.blockerStage || getLifecycleStage(job)} | ${job.blockerReason}` : "<span class=\"muted\">Clear</span>"}</td>
               <td>
                 <div class="sheet-actions">
                   ${buildGridRowActions(job)}
@@ -391,7 +403,8 @@
     ` : emptyState("No jobs match the current filters.");
   }
 
-  function renderAssignmentBoard(filters) {
+  function renderStageBoard(filters) {
+    const isAdmin = appState.session?.role === "admin";
     const items = appState.jobs.filter((job) => {
       const window = getAssignmentWindow(job);
       const statusMatch = filters.window === "all" || window.label === filters.window;
@@ -399,34 +412,45 @@
       return statusMatch && (!filters.query || haystack.includes(filters.query));
     });
 
-    elements.assignmentList.innerHTML = items.length ? items.map((job) => {
-      const window = getAssignmentWindow(job);
+    const columns = lifecycleStages.map((stage) => {
+      const stageItems = items.filter((job) => getLifecycleStage(job) === stage);
       return `
-        <article class="job-card">
-          <div class="job-card-header">
-            <div>
-              <p class="eyebrow">${job.market}</p>
-              <h4>${job.title}</h4>
-            </div>
-            <span class="window-pill ${window.className}">${window.label}</span>
+        <section class="stage-column" data-stage="${stage}">
+          <header class="stage-column-header">
+            <strong>${stage}</strong>
+            <span class="pill">${stageItems.length}</span>
+          </header>
+          <div class="stage-column-body" data-stage-drop="${stage}">
+            ${stageItems.map((job) => {
+              const window = getAssignmentWindow(job);
+              return `
+                <article class="job-card board-card" draggable="${isAdmin ? "true" : "false"}" data-drag-job-id="${job.id}">
+                  <div class="job-card-header">
+                    <div>
+                      <p class="eyebrow">${job.market}</p>
+                      <h4>${job.title}</h4>
+                    </div>
+                    <span class="window-pill ${window.className}">${window.label}</span>
+                  </div>
+                  <div class="job-tags">
+                    <span class="pill">${job.assignedTo || "Unassigned"}</span>
+                    <span class="pill">${formatCurrency(job.jobValue)}</span>
+                  </div>
+                  <p class="muted">${job.blockerReason ? `${job.blockerStage || stage} | ${job.blockerReason}` : job.issue}</p>
+                  <div class="job-actions">
+                    <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
+                    ${!job.assignedTo ? `<button class="action-btn" data-action="assign-job" data-id="${job.id}">Assign</button>` : ""}
+                    <button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>
+                  </div>
+                </article>
+              `;
+            }).join("") || `<div class="empty-stage">Drop jobs here</div>`}
           </div>
-          <div class="job-tags">
-            <span class="pill">${getLifecycleStage(job)}</span>
-            <span class="pill">${job.jobType}</span>
-            <span class="pill">${job.assignedTo || "Unassigned"}</span>
-            <span class="pill">${formatCurrency(job.jobValue)}</span>
-          </div>
-          <p class="muted">${job.blockerReason || job.issue}</p>
-          <div class="job-actions">
-            ${!job.assignedTo ? `<button class="action-btn" data-action="assign-fast" data-id="${job.id}">Quick assign</button>` : ""}
-            ${!job.assignedTo ? `<button class="action-btn" data-action="assign-job" data-id="${job.id}">Choose assignee</button>` : ""}
-            <button class="action-btn" data-action="advance-status" data-id="${job.id}">Advance stage</button>
-            <button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>
-          </div>
-          ${renderUpdatesPreview(job.id)}
-        </article>
+        </section>
       `;
-    }).join("") : emptyState("No assignment items match the current filters.");
+    });
+
+    elements.stageBoard.innerHTML = columns.join("");
   }
 
   function renderFieldJobs(filters) {
@@ -458,7 +482,8 @@
           <p class="muted">${job.blockerReason || job.issue}</p>
         </div>
         <div class="job-actions">
-          <button class="action-btn" data-action="advance-status" data-id="${job.id}">Advance stage</button>
+          <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
+          <button class="action-btn" data-action="advance-stage" data-id="${job.id}">Advance stage</button>
           <button class="action-btn" data-action="update-hours" data-id="${job.id}">Log hours</button>
           <button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>
           ${job.blockerReason
@@ -559,7 +584,7 @@
     renderDeadlineList();
     renderAlerts();
     renderMasterGrid(filters.intake);
-    renderAssignmentBoard(filters.assignment);
+    renderStageBoard(filters.assignment);
     renderCrews();
     renderFieldJobs(filters.field);
     renderKpis(filters.kpiGroup);
@@ -583,15 +608,9 @@
     await refreshApp();
   }
 
-  function nextAdminStage(currentStatus) {
-    const currentIndex = intakeStages.indexOf(currentStatus);
-    return intakeStages[Math.min(currentIndex + 1, intakeStages.length - 1)] || intakeStages[0];
-  }
-
-  function nextFieldStage(currentStatus) {
-    const movableStages = fieldStages.filter((stage) => stage !== "Blocked");
-    const currentIndex = movableStages.indexOf(currentStatus);
-    return movableStages[Math.min(currentIndex + 1, movableStages.length - 1)] || movableStages[0];
+  function nextLifecycleStage(currentStatus) {
+    const currentIndex = lifecycleStages.indexOf(currentStatus);
+    return lifecycleStages[Math.min(currentIndex + 1, lifecycleStages.length - 1)] || lifecycleStages[0];
   }
 
   async function updateJob(jobId, payload) {
@@ -604,9 +623,7 @@
 
   function openAssignDialog(jobId) {
     elements.assignForm.elements.jobId.value = String(jobId);
-    elements.assignCrewSelect.innerHTML = appState.crews
-      .map((crew) => `<option value="${crew.name}">${crew.name} | ${crew.available} available | ${crew.type}</option>`)
-      .join("");
+    fillAssigneeSelect(elements.assignCrewSelect, "");
     elements.assignDialog.showModal();
   }
 
@@ -615,6 +632,41 @@
     elements.updateForm.elements.note.value = "";
     elements.updateForm.elements.attachment.value = "";
     elements.updateDialog.showModal();
+  }
+
+  function fillAssigneeSelect(selectElement, currentValue) {
+    selectElement.innerHTML = [`<option value="">Unassigned</option>`]
+      .concat(appState.crews.map((crew) => `<option value="${crew.name}">${crew.name} | ${crew.available} available</option>`))
+      .join("");
+    selectElement.value = currentValue || "";
+  }
+
+  function openJobDetailDialog(jobId) {
+    const job = appState.jobs.find((item) => String(item.id) === String(jobId));
+    if (!job) {
+      return;
+    }
+    const isAdmin = appState.session?.role === "admin";
+    elements.jobDetailForm.elements.jobId.value = String(job.id);
+    elements.jobDetailSummary.innerHTML = `
+      <article class="info-card">
+        <strong>${job.title}</strong><br>
+        <span class="muted">${job.market} | ${job.jobType}</span><br>
+        <span class="muted">Current stage: ${job.lifecycleStage}</span><br>
+        <span class="muted">Blocker: ${job.blockerReason ? `${job.blockerStage || job.lifecycleStage} | ${job.blockerReason}` : "None"}</span>
+      </article>
+    `;
+    elements.jobDetailStageSelect.innerHTML = lifecycleStages.map((stage) => `<option value="${stage}">${stage}</option>`).join("");
+    elements.jobDetailStageSelect.value = job.lifecycleStage || "Uploaded";
+    fillAssigneeSelect(elements.jobDetailAssigneeSelect, job.assignedTo);
+    elements.jobDetailForm.elements.scheduledStartAt.value = String(job.scheduledStartAt || "").slice(0, 16);
+    elements.jobDetailForm.elements.priority.value = job.priority || "Medium";
+    elements.jobDetailStageSelect.disabled = !isAdmin;
+    elements.jobDetailAssigneeSelect.disabled = !isAdmin;
+    elements.jobDetailForm.elements.scheduledStartAt.disabled = !isAdmin;
+    elements.jobDetailForm.elements.priority.disabled = !isAdmin;
+    elements.jobDetailUpdates.innerHTML = renderUpdatesPreview(job.id);
+    elements.jobDetailDialog.showModal();
   }
 
   async function handleActionClick(event) {
@@ -630,13 +682,6 @@
       return;
     }
 
-    if (action === "advance-admin-stage") {
-      await updateJob(jobId, {
-        intakeStatus: nextAdminStage(job.intakeStatus)
-      });
-      return;
-    }
-
     if (action === "assign-fast") {
       const availableCrew = [...appState.crews].sort((a, b) => b.available - a.available).find((crew) => crew.available > 0);
       if (!availableCrew) {
@@ -645,10 +690,14 @@
       }
       await updateJob(jobId, {
         assignedTo: availableCrew.name,
-        intakeStatus: "Assigned",
-        fieldStatus: "Assigned",
+        lifecycleStage: "Assigned",
         issue: `Assigned to ${availableCrew.name}. Waiting on acknowledgement.`
       });
+      return;
+    }
+
+    if (action === "open-job") {
+      openJobDetailDialog(jobId);
       return;
     }
 
@@ -657,14 +706,14 @@
       return;
     }
 
-    if (action === "advance-status") {
-      const nextStatus = nextFieldStage(job.fieldStatus === "Blocked" ? "In Progress" : job.fieldStatus);
+    if (action === "advance-stage") {
+      const nextStatus = nextLifecycleStage(job.lifecycleStage);
       const nextCompletion = nextStatus === "Closed"
         ? 100
         : Math.min(job.completion + (nextStatus === "Completed" ? 35 : 20), 100);
       const nextHours = Number(job.actualHours || 0) + 4;
       await updateJob(jobId, {
-        fieldStatus: nextStatus,
+        lifecycleStage: nextStatus,
         completion: nextCompletion,
         actualHours: nextHours,
         blockerReason: nextStatus === "Completed" || nextStatus === "Closed" ? "" : job.blockerReason,
@@ -679,8 +728,8 @@
         return;
       }
       await updateJob(jobId, {
-        fieldStatus: "Blocked",
         blockerReason,
+        blockerStage: job.lifecycleStage,
         issue: blockerReason
       });
       return;
@@ -693,9 +742,8 @@
 
     if (action === "clear-blocker") {
       await updateJob(jobId, {
-        fieldStatus: "In Progress",
-        resumeFieldStatus: "In Progress",
         blockerReason: "",
+        blockerStage: "",
         issue: "Blocker cleared. Work resumed."
       });
       return;
@@ -774,6 +822,8 @@
     elements.cancelAssignDialog.addEventListener("click", () => elements.assignDialog.close());
     elements.closeUpdateDialog.addEventListener("click", () => elements.updateDialog.close());
     elements.cancelUpdateDialog.addEventListener("click", () => elements.updateDialog.close());
+    elements.closeJobDetailDialog.addEventListener("click", () => elements.jobDetailDialog.close());
+    elements.cancelJobDetailDialog.addEventListener("click", () => elements.jobDetailDialog.close());
 
     elements.jobForm.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -821,8 +871,7 @@
       const assignedTo = String(form.get("assignedTo") || "");
       await updateJob(jobId, {
         assignedTo,
-        intakeStatus: "Assigned",
-        fieldStatus: "Assigned",
+        lifecycleStage: assignedTo ? "Assigned" : "Uploaded",
         issue: `Assigned to ${assignedTo}. Waiting on acknowledgement.`
       });
       elements.assignDialog.close();
@@ -832,21 +881,66 @@
       event.preventDefault();
       const form = new FormData(elements.updateForm);
       const jobId = Number(form.get("jobId"));
-      const attachment = await fileToPayload(elements.updateForm.elements.attachment.files[0]);
+      const attachments = await filesToPayload(elements.updateForm.elements.attachment.files);
       await api(`/api/jobs/${jobId}/updates`, {
         method: "POST",
         body: JSON.stringify({
           note: form.get("note"),
-          ...(attachment || {})
+          attachments
         })
       });
       elements.updateDialog.close();
       await refreshApp();
     });
 
+    elements.jobDetailForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = new FormData(elements.jobDetailForm);
+      const assignedTo = String(form.get("assignedTo") || "");
+      await updateJob(Number(form.get("jobId")), {
+        lifecycleStage: String(form.get("lifecycleStage") || "Uploaded"),
+        assignedTo,
+        scheduledStartAt: form.get("scheduledStartAt"),
+        priority: form.get("priority"),
+        issue: assignedTo ? `Updated in job workspace. Assigned to ${assignedTo}.` : "Updated in job workspace."
+      });
+      elements.jobDetailDialog.close();
+    });
+
     elements.demoCreds.addEventListener("click", () => {
       elements.loginForm.elements.email.value = "admin@fieldsight.local";
       elements.loginForm.elements.password.value = "Admin123!";
+    });
+
+    document.body.addEventListener("dragstart", (event) => {
+      const card = event.target.closest("[data-drag-job-id]");
+      if (!card || !appState.session || appState.session.role !== "admin") {
+        return;
+      }
+      event.dataTransfer.setData("text/plain", card.dataset.dragJobId);
+    });
+
+    document.body.addEventListener("dragover", (event) => {
+      const dropZone = event.target.closest("[data-stage-drop]");
+      if (dropZone && appState.session?.role === "admin") {
+        event.preventDefault();
+      }
+    });
+
+    document.body.addEventListener("drop", (event) => {
+      const dropZone = event.target.closest("[data-stage-drop]");
+      if (!dropZone || appState.session?.role !== "admin") {
+        return;
+      }
+      event.preventDefault();
+      const jobId = Number(event.dataTransfer.getData("text/plain"));
+      const stage = dropZone.dataset.stageDrop;
+      if (!jobId || !stage) {
+        return;
+      }
+      updateJob(jobId, { lifecycleStage: stage, issue: `Stage moved to ${stage} from the admin board.` }).catch((error) => {
+        window.alert(error.message);
+      });
     });
 
     document.body.addEventListener("click", (event) => {

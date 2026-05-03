@@ -29,8 +29,8 @@ const mimeTypes = {
   ".txt": "text/plain; charset=utf-8"
 };
 
-const intakeStages = ["Uploaded", "Review", "Approved", "Scheduled", "Assigned"];
-const fieldStages = ["Assigned", "Acknowledged", "En Route", "In Progress", "Blocked", "Completed", "Closed"];
+const lifecycleStages = ["Uploaded", "Admin Approved", "Assigned", "Accepted", "Scheduled", "In Progress", "Completed", "Admin Reviewed", "Closed"];
+const maxAttachmentBatchBytes = 30 * 1024 * 1024;
 const allowedAttachmentMimeTypes = new Set([
   "image/jpeg",
   "image/png",
@@ -59,13 +59,7 @@ function createToken(prefix = "fs") {
 }
 
 function currentLifecycle(job) {
-  if (job.blockerReason && !["Completed", "Closed"].includes(job.fieldStatus)) {
-    return "Blocked";
-  }
-  if (job.assignedTo) {
-    return job.fieldStatus || "Assigned";
-  }
-  return job.intakeStatus || "Uploaded";
+  return job.lifecycleStage || "Uploaded";
 }
 
 function calculateDurationVariance(plannedHours, actualHours) {
@@ -84,10 +78,6 @@ function saveAttachment({ jobId, fileName, mimeType, contentBase64 }) {
   if (!buffer.length) {
     throw new Error("Attachment is empty");
   }
-  if (buffer.length > 10 * 1024 * 1024) {
-    throw new Error("Attachment exceeds 10MB limit");
-  }
-
   const jobDir = path.join(uploadsDir, `job-${jobId}`);
   if (!fs.existsSync(jobDir)) {
     fs.mkdirSync(jobDir, { recursive: true });
@@ -103,6 +93,25 @@ function saveAttachment({ jobId, fileName, mimeType, contentBase64 }) {
     attachmentPath: `/uploads/job-${jobId}/${finalName}`,
     attachmentMime: mimeType
   };
+}
+
+function saveAttachments({ jobId, attachments }) {
+  const normalizedAttachments = Array.isArray(attachments) ? attachments : [];
+  let totalBytes = 0;
+  normalizedAttachments.forEach((attachment) => {
+    const buffer = Buffer.from(String(attachment.contentBase64 || ""), "base64");
+    totalBytes += buffer.length;
+  });
+  if (totalBytes > maxAttachmentBatchBytes) {
+    throw new Error("Combined attachments exceed 30MB limit");
+  }
+  const saved = normalizedAttachments.map((attachment) => saveAttachment({
+    jobId,
+    fileName: attachment.fileName,
+    mimeType: attachment.mimeType,
+    contentBase64: attachment.contentBase64
+  }));
+  return saved;
 }
 
 const db = await createDatabase({ rootDir, dataDir, hashPassword, nowIso });
@@ -259,8 +268,7 @@ async function getAppState(forUser) {
     updatesByJob,
     crews,
     stageOptions: {
-      intake: intakeStages,
-      field: fieldStages
+      lifecycle: lifecycleStages
     },
     kpis: computeKpis(allJobs, crews)
   };
@@ -416,40 +424,43 @@ const server = http.createServer(async (req, res) => {
 
       const next = { ...existing };
       if (user.role === "admin") {
-        next.intakeStatus = body.intakeStatus ?? next.intakeStatus;
         next.assignedTo = body.assignedTo ?? next.assignedTo;
         next.scheduledStartAt = body.scheduledStartAt ?? next.scheduledStartAt;
         next.priority = body.priority ?? next.priority;
         next.jobValue = body.jobValue ?? next.jobValue;
         next.laborCost = body.laborCost ?? next.laborCost;
         next.plannedHours = body.plannedHours ?? next.plannedHours;
+        next.lifecycleStage = body.lifecycleStage ?? next.lifecycleStage;
       }
 
-      next.fieldStatus = body.fieldStatus ?? next.fieldStatus;
       next.completion = body.completion ?? next.completion;
       next.actualHours = body.actualHours ?? next.actualHours;
       next.blockerReason = body.blockerReason ?? next.blockerReason;
       next.issue = body.issue ?? next.issue;
       next.durationVariance = calculateDurationVariance(next.plannedHours, next.actualHours);
 
-      if (!next.assignedTo) {
-        next.fieldStatus = "Assigned";
+      if (!next.assignedTo && next.lifecycleStage !== "Uploaded") {
+        next.lifecycleStage = "Uploaded";
       }
 
-      if (next.assignedTo && intakeStages.indexOf(next.intakeStatus) < intakeStages.indexOf("Assigned")) {
-        next.intakeStatus = "Assigned";
+      if (next.assignedTo && next.lifecycleStage === "Uploaded") {
+        next.lifecycleStage = "Assigned";
       }
 
-      if (next.blockerReason && !["Completed", "Closed"].includes(next.fieldStatus)) {
-        next.fieldStatus = "Blocked";
-      } else if (!next.blockerReason && next.fieldStatus === "Blocked") {
-        next.fieldStatus = body.resumeFieldStatus || "In Progress";
+      if (next.blockerReason && !next.blockerStage) {
+        next.blockerStage = next.lifecycleStage;
+      } else if (!next.blockerReason) {
+        next.blockerStage = "";
       }
 
-      if (["Completed", "Closed"].includes(next.fieldStatus)) {
+      if (["Completed", "Closed"].includes(next.lifecycleStage)) {
         next.blockerReason = "";
+        next.blockerStage = "";
         next.completion = 100;
       }
+
+      next.intakeStatus = next.lifecycleStage;
+      next.fieldStatus = next.lifecycleStage;
 
       await db.updateJob(jobId, next);
       sendJson(res, 200, { ok: true });
@@ -472,25 +483,18 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 403, { error: "Field users can only update their assigned jobs" });
         return;
       }
-      let attachmentMeta = {
-        attachmentName: "",
-        attachmentPath: "",
-        attachmentMime: ""
-      };
-      if (body.fileName && body.mimeType && body.contentBase64) {
-        attachmentMeta = saveAttachment({
-          jobId,
-          fileName: body.fileName,
-          mimeType: body.mimeType,
-          contentBase64: body.contentBase64
-        });
-      }
+      const normalizedAttachments = Array.isArray(body.attachments) && body.attachments.length
+        ? body.attachments
+        : (body.fileName && body.mimeType && body.contentBase64
+          ? [{ fileName: body.fileName, mimeType: body.mimeType, contentBase64: body.contentBase64 }]
+          : []);
+      const attachments = saveAttachments({ jobId, attachments: normalizedAttachments });
       await db.createJobUpdate({
         jobId,
         authorName: user.name,
         authorRole: user.role,
         note: String(body.note || ""),
-        ...attachmentMeta
+        attachments
       });
       sendJson(res, 201, { ok: true });
       return;

@@ -261,6 +261,10 @@ button:hover {
   align-items: start;
 }
 
+.assignment-grid {
+  grid-template-columns: minmax(0, 2.4fr) minmax(280px, 0.8fr);
+}
+
 .login-shell {
   min-height: calc(100vh - 56px);
   display: grid;
@@ -537,6 +541,58 @@ button:hover {
   background: rgba(255, 255, 255, 0.75);
 }
 
+.board-panel {
+  overflow: hidden;
+}
+
+.stage-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(250px, 1fr);
+  gap: 18px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.stage-column {
+  display: grid;
+  gap: 12px;
+  min-height: 420px;
+}
+
+.stage-column-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.stage-column-body {
+  min-height: 360px;
+  padding: 12px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px dashed var(--line-strong);
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.board-card {
+  cursor: grab;
+}
+
+.board-card:active {
+  cursor: grabbing;
+}
+
+.empty-stage {
+  padding: 18px;
+  border-radius: 16px;
+  text-align: center;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.68);
+}
+
 .sheet-table {
   width: 100%;
   min-width: 1200px;
@@ -620,6 +676,14 @@ button:hover {
   font-weight: 600;
 }
 
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 .update-link:hover {
   text-decoration: underline;
 }
@@ -630,10 +694,36 @@ button:hover {
   border-radius: 28px;
 }
 
+.dialog-card-lg {
+  width: min(96vw, 980px);
+}
+
 .dialog-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px 16px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 18px;
+}
+
+.detail-section {
+  display: grid;
+  gap: 12px;
+}
+
+.detail-section label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.detail-stack {
+  display: grid;
+  gap: 12px;
 }
 
 .dialog-card label {
@@ -690,6 +780,10 @@ dialog::backdrop {
 
   .split-grid,
   .dialog-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-grid {
     grid-template-columns: 1fr;
   }
 

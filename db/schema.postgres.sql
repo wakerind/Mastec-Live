@@ -83,8 +83,18 @@ ALTER TABLE job_updates ADD COLUMN IF NOT EXISTS attachment_name TEXT NOT NULL D
 ALTER TABLE job_updates ADD COLUMN IF NOT EXISTS attachment_path TEXT NOT NULL DEFAULT '';
 ALTER TABLE job_updates ADD COLUMN IF NOT EXISTS attachment_mime TEXT NOT NULL DEFAULT '';
 
+CREATE TABLE IF NOT EXISTS job_update_attachments (
+  id BIGSERIAL PRIMARY KEY,
+  job_update_id BIGINT NOT NULL REFERENCES job_updates(id) ON DELETE CASCADE,
+  attachment_name TEXT NOT NULL DEFAULT '',
+  attachment_path TEXT NOT NULL DEFAULT '',
+  attachment_mime TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_scheduled_start_at ON jobs (scheduled_start_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_assigned_to ON jobs (assigned_to);
 CREATE INDEX IF NOT EXISTS idx_jobs_intake_status ON jobs (intake_status);
 CREATE INDEX IF NOT EXISTS idx_jobs_field_status ON jobs (field_status);
 CREATE INDEX IF NOT EXISTS idx_job_updates_job_id ON job_updates (job_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_job_update_attachments_update_id ON job_update_attachments (job_update_id, created_at DESC);

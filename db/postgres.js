@@ -43,6 +43,16 @@ async function hydrateLegacyJobData(pool) {
         ELSE COALESCE(blocker_stage, '')
       END
   `);
+  await pool.query(`
+    INSERT INTO job_update_attachments (job_update_id, attachment_name, attachment_path, attachment_mime, created_at)
+    SELECT id, attachment_name, attachment_path, attachment_mime, created_at
+    FROM job_updates
+    WHERE attachment_path != ''
+      AND NOT EXISTS (
+        SELECT 1 FROM job_update_attachments
+        WHERE job_update_attachments.job_update_id = job_updates.id
+      )
+  `);
 }
 
 export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso, rootDir }) {
@@ -336,7 +346,7 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
       if (!jobIds.length) {
         return [];
       }
-      return (await pool.query(`
+      const updates = (await pool.query(`
         SELECT
           id::int AS id,
           job_id::int AS "jobId",
@@ -351,14 +361,47 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         WHERE job_id = ANY($1::int[])
         ORDER BY created_at DESC, id DESC
       `, [jobIds])).rows;
+      const updateIds = updates.map((update) => update.id);
+      const attachments = updateIds.length
+        ? (await pool.query(`
+          SELECT
+            id::int AS id,
+            job_update_id::int AS "jobUpdateId",
+            attachment_name AS "attachmentName",
+            attachment_path AS "attachmentPath",
+            attachment_mime AS "attachmentMime",
+            created_at AS "createdAt"
+          FROM job_update_attachments
+          WHERE job_update_id = ANY($1::int[])
+          ORDER BY id ASC
+        `, [updateIds])).rows
+        : [];
+      const attachmentsByUpdate = new Map();
+      attachments.forEach((attachment) => {
+        if (!attachmentsByUpdate.has(attachment.jobUpdateId)) {
+          attachmentsByUpdate.set(attachment.jobUpdateId, []);
+        }
+        attachmentsByUpdate.get(attachment.jobUpdateId).push(attachment);
+      });
+      return updates.map((update) => ({
+        ...update,
+        attachments: attachmentsByUpdate.get(update.id) || []
+      }));
     },
-    async createJobUpdate({ jobId, authorName, authorRole, note, attachmentName, attachmentPath, attachmentMime }) {
+    async createJobUpdate({ jobId, authorName, authorRole, note, attachments }) {
       const result = await pool.query(`
         INSERT INTO job_updates (job_id, author_name, author_role, note, attachment_name, attachment_path, attachment_mime, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id
-      `, [jobId, authorName, authorRole, note || "", attachmentName || "", attachmentPath || "", attachmentMime || "", nowIso()]);
-      return Number(result.rows[0].id);
+      `, [jobId, authorName, authorRole, note || "", "", "", "", nowIso()]);
+      const updateId = Number(result.rows[0].id);
+      for (const attachment of attachments || []) {
+        await pool.query(`
+          INSERT INTO job_update_attachments (job_update_id, attachment_name, attachment_path, attachment_mime, created_at)
+          VALUES ($1, $2, $3, $4, $5)
+        `, [updateId, attachment.attachmentName || "", attachment.attachmentPath || "", attachment.attachmentMime || "", nowIso()]);
+      }
+      return updateId;
     }
   };
 }

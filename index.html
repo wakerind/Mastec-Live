@@ -143,15 +143,13 @@
                 <select id="intakeStatusFilter">
                   <option value="all">All lifecycle stages</option>
                   <option value="Uploaded">Uploaded</option>
-                  <option value="Review">Review</option>
-                  <option value="Approved">Approved</option>
-                  <option value="Scheduled">Scheduled</option>
+                  <option value="Admin Approved">Admin Approved</option>
                   <option value="Assigned">Assigned</option>
-                  <option value="Acknowledged">Acknowledged</option>
-                  <option value="En Route">En Route</option>
+                  <option value="Accepted">Accepted</option>
+                  <option value="Scheduled">Scheduled</option>
                   <option value="In Progress">In Progress</option>
-                  <option value="Blocked">Blocked</option>
                   <option value="Completed">Completed</option>
+                  <option value="Admin Reviewed">Admin Reviewed</option>
                   <option value="Closed">Closed</option>
                 </select>
                 <input id="intakeSearch" type="search" placeholder="Search job, market, assignee, requester">
@@ -162,12 +160,12 @@
         </section>
 
         <section class="screen" data-screen-panel="assignment">
-          <div class="content-grid">
-            <article class="panel panel-lg">
+          <div class="content-grid assignment-grid">
+            <article class="panel panel-lg board-panel">
               <div class="panel-header stacked-mobile">
                 <div>
-                  <p class="eyebrow">Dispatcher view</p>
-                  <h3>Assignment board</h3>
+                  <p class="eyebrow">Lifecycle board</p>
+                  <h3>Stage board</h3>
                 </div>
                 <div class="filters">
                   <select id="assignmentWindowFilter">
@@ -179,7 +177,7 @@
                   <input id="assignmentSearch" type="search" placeholder="Search assignee, market, contractor">
                 </div>
               </div>
-              <div class="job-list" id="assignmentList"></div>
+              <div class="stage-board" id="stageBoard"></div>
             </article>
 
             <article class="panel">
@@ -205,11 +203,11 @@
                 <select id="fieldStatusFilter">
                   <option value="all">All field stages</option>
                   <option value="Assigned">Assigned</option>
-                  <option value="Acknowledged">Acknowledged</option>
-                  <option value="En Route">En Route</option>
+                  <option value="Accepted">Accepted</option>
+                  <option value="Scheduled">Scheduled</option>
                   <option value="In Progress">In Progress</option>
-                  <option value="Blocked">Blocked</option>
                   <option value="Completed">Completed</option>
+                  <option value="Admin Reviewed">Admin Reviewed</option>
                   <option value="Closed">Closed</option>
                 </select>
                 <input id="fieldSearch" type="search" placeholder="Search location, project, blocker">
@@ -332,12 +330,55 @@
           <input name="note" placeholder="What changed on this job?" required>
         </label>
         <label class="span-2">Attachment
-          <input name="attachment" type="file" accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx,.txt,image/jpeg,image/png,application/pdf">
+          <input name="attachment" type="file" multiple accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx,.txt,image/jpeg,image/png,application/pdf">
         </label>
       </div>
       <menu class="dialog-actions">
         <button class="secondary-btn" type="button" id="cancelUpdateDialog">Cancel</button>
         <button class="primary-btn" type="submit">Save update</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="jobDetailDialog">
+    <form class="dialog-card dialog-card-lg" id="jobDetailForm">
+      <div class="dialog-header">
+        <h3>Job workspace</h3>
+        <button class="icon-btn" type="button" id="closeJobDetailDialog" aria-label="Close">x</button>
+      </div>
+      <input type="hidden" name="jobId">
+      <div class="detail-grid">
+        <div class="detail-section">
+          <p class="eyebrow">Job details</p>
+          <div class="detail-stack" id="jobDetailSummary"></div>
+        </div>
+        <div class="detail-section">
+          <p class="eyebrow">Workflow controls</p>
+          <label>Lifecycle stage
+            <select name="lifecycleStage" id="jobDetailStageSelect"></select>
+          </label>
+          <label>Assigned to
+            <select name="assignedTo" id="jobDetailAssigneeSelect"></select>
+          </label>
+          <label>Scheduled start
+            <input name="scheduledStartAt" type="datetime-local">
+          </label>
+          <label>Priority
+            <select name="priority">
+              <option>High</option>
+              <option>Medium</option>
+              <option>Low</option>
+            </select>
+          </label>
+        </div>
+        <div class="detail-section span-2">
+          <p class="eyebrow">Update history</p>
+          <div class="detail-stack" id="jobDetailUpdates"></div>
+        </div>
+      </div>
+      <menu class="dialog-actions">
+        <button class="secondary-btn" type="button" id="cancelJobDetailDialog">Close</button>
+        <button class="primary-btn" type="submit">Save job changes</button>
       </menu>
     </form>
   </dialog>
