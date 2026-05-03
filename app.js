@@ -1,9 +1,12 @@
 (function () {
   const authStorageKey = "fieldsight-auth-token";
-  const lifecycleStages = ["Uploaded", "Admin Approved", "Assigned", "Accepted", "Scheduled", "In Progress", "Completed", "Admin Reviewed", "Closed"];
+  const visibleLifecycleStages = ["Uploaded", "Assigned", "Scheduled", "Not Started", "In Progress", "Completed", "Admin Reviewed", "Closed"];
+  const editableLifecycleStages = ["Uploaded", "Assigned", "Scheduled", "In Progress", "Completed", "Admin Reviewed", "Closed"];
   const maxAttachmentBatchBytes = 30 * 1024 * 1024;
+  const dragMimeType = "application/x-fieldsight-job-id";
 
   let authToken = localStorage.getItem(authStorageKey) || "";
+  let currentScreen = "overview";
   let appState = {
     session: null,
     jobs: [],
@@ -110,7 +113,85 @@
   }
 
   function getLifecycleStage(job) {
+    if (job.displayStage) {
+      return job.displayStage;
+    }
+    const rawStage = job.lifecycleStage || "Uploaded";
+    if (rawStage === "Accepted") {
+      return "Assigned";
+    }
+    if (rawStage === "Admin Approved") {
+      return "Uploaded";
+    }
+    return rawStage;
+  }
+
+  function getStoredLifecycleStage(job) {
     return job.lifecycleStage || "Uploaded";
+  }
+
+  function isAdminApproved(job) {
+    return Boolean(job.adminApproved || ["Assigned", "Accepted", "Scheduled", "In Progress", "Completed", "Admin Reviewed", "Closed"].includes(getStoredLifecycleStage(job)));
+  }
+
+  function isAccepted(job) {
+    return Boolean(job.acceptedAt || ["Accepted", "Scheduled", "In Progress", "Completed", "Admin Reviewed", "Closed"].includes(getStoredLifecycleStage(job)));
+  }
+
+  function hasStarted(job) {
+    return Boolean(job.startedAt || ["In Progress", "Completed", "Admin Reviewed", "Closed"].includes(getStoredLifecycleStage(job)));
+  }
+
+  function getDefaultScreen() {
+    return appState.session?.role === "field" ? "field" : "overview";
+  }
+
+  function getAllowedScreens() {
+    if (!appState.session) {
+      return [];
+    }
+    return appState.session.role === "field"
+      ? ["overview", "field"]
+      : ["overview", "admin", "assignment", "accounts", "leadership"];
+  }
+
+  function getSafeScreen(screenName) {
+    const allowed = getAllowedScreens();
+    if (!allowed.length) {
+      return "overview";
+    }
+    return allowed.includes(screenName) ? screenName : getDefaultScreen();
+  }
+
+  function mapUiStageToStoredStage(stage) {
+    return stage === "Not Started" ? "Scheduled" : stage;
+  }
+
+  function buildStageUpdatePayload(job, stage, sourceLabel) {
+    const storedStage = mapUiStageToStoredStage(stage);
+    const payload = {
+      lifecycleStage: storedStage,
+      issue: `Stage moved to ${stage} from ${sourceLabel}.`
+    };
+    if (stage === "In Progress") {
+      payload.started = true;
+    }
+    if (["Completed", "Admin Reviewed", "Closed"].includes(stage) && !hasStarted(job)) {
+      payload.started = true;
+    }
+    if (stage === "Completed" || stage === "Closed") {
+      payload.completion = 100;
+    }
+    return payload;
+  }
+
+  function buildRequirementBadges(job) {
+    const badges = [];
+    badges.push(`<span class="pill ${isAdminApproved(job) ? "requirement-ready" : "requirement-pending"}">Admin signoff ${isAdminApproved(job) ? "done" : "pending"}</span>`);
+    if (job.assignedTo) {
+      badges.push(`<span class="pill ${isAccepted(job) ? "requirement-ready" : "requirement-pending"}">Team accepted ${isAccepted(job) ? "done" : "pending"}</span>`);
+    }
+    return badges.join("");
   }
 
   function getMargin(job) {
@@ -237,20 +318,22 @@
     if (!loggedIn) {
       elements.sessionRoleLabel.textContent = "Guest mode";
       elements.sessionUserLabel.textContent = "Sign in or redeem an invite to continue.";
+      currentScreen = "overview";
       return;
     }
 
     elements.sessionRoleLabel.textContent = appState.session.role === "admin" ? "Administrator portal" : "Field portal";
     elements.sessionUserLabel.textContent = `${appState.session.name} | ${appState.session.email}`;
-    setScreen(appState.session.role === "field" ? "field" : "overview");
+    setScreen(getSafeScreen(currentScreen));
   }
 
   function setScreen(screenName) {
+    currentScreen = getSafeScreen(screenName);
     elements.navLinks.forEach((link) => {
-      link.classList.toggle("active", link.dataset.screen === screenName);
+      link.classList.toggle("active", link.dataset.screen === currentScreen);
     });
     elements.screens.forEach((screen) => {
-      screen.classList.toggle("active", screen.dataset.screenPanel === screenName);
+      screen.classList.toggle("active", screen.dataset.screenPanel === currentScreen);
     });
   }
 
@@ -334,9 +417,18 @@
     if (!["Closed"].includes(lifecycle)) {
       actions.push(`<button class="action-btn" data-action="advance-stage" data-id="${job.id}">Advance</button>`);
     }
+    if (appState.session?.role === "admin" && !isAdminApproved(job)) {
+      actions.push(`<button class="action-btn" data-action="admin-signoff" data-id="${job.id}">Admin signoff</button>`);
+    }
     if (!job.assignedTo) {
       actions.push(`<button class="action-btn" data-action="assign-fast" data-id="${job.id}">Quick assign</button>`);
       actions.push(`<button class="action-btn" data-action="assign-job" data-id="${job.id}">Choose assignee</button>`);
+    }
+    if (appState.session?.role === "field" && job.assignedTo === appState.session.name && !isAccepted(job)) {
+      actions.push(`<button class="action-btn" data-action="accept-job" data-id="${job.id}">Accept job</button>`);
+    }
+    if (appState.session?.role === "field" && ["Scheduled", "Not Started"].includes(lifecycle) && !hasStarted(job)) {
+      actions.push(`<button class="action-btn" data-action="start-job" data-id="${job.id}">Start job</button>`);
     }
     if (job.blockerReason) {
       actions.push(`<button class="action-btn" data-action="clear-blocker" data-id="${job.id}">Clear blocker</button>`);
@@ -392,6 +484,7 @@
               <td>${Number(job.actualHours || 0)}h</td>
               <td class="sheet-blocker-cell">${job.blockerReason ? `${job.blockerStage || getLifecycleStage(job)} | ${job.blockerReason}` : "<span class=\"muted\">Clear</span>"}</td>
               <td>
+                <div class="sheet-requirements">${buildRequirementBadges(job)}</div>
                 <div class="sheet-actions">
                   ${buildGridRowActions(job)}
                 </div>
@@ -412,7 +505,7 @@
       return statusMatch && (!filters.query || haystack.includes(filters.query));
     });
 
-    const columns = lifecycleStages.map((stage) => {
+    const columns = visibleLifecycleStages.map((stage) => {
       const stageItems = items.filter((job) => getLifecycleStage(job) === stage);
       return `
         <section class="stage-column" data-stage="${stage}">
@@ -425,22 +518,24 @@
               const window = getAssignmentWindow(job);
               return `
                 <article class="job-card board-card" draggable="${isAdmin ? "true" : "false"}" data-drag-job-id="${job.id}">
-                  <div class="job-card-header">
+                  <div class="board-card-top">
                     <div>
-                      <p class="eyebrow">${job.market}</p>
                       <h4>${job.title}</h4>
+                      <p class="board-card-team">${job.assignedTo || "Unassigned"}</p>
                     </div>
                     <span class="window-pill ${window.className}">${window.label}</span>
                   </div>
-                  <div class="job-tags">
-                    <span class="pill">${job.assignedTo || "Unassigned"}</span>
-                    <span class="pill">${formatCurrency(job.jobValue)}</span>
+                  <div class="board-card-meta">
+                    <span class="pill">${job.market}</span>
+                    ${job.blockerReason ? `<span class="pill blocker-pill">Blocked</span>` : ""}
                   </div>
-                  <p class="muted">${job.blockerReason ? `${job.blockerStage || stage} | ${job.blockerReason}` : job.issue}</p>
-                  <div class="job-actions">
+                  <div class="board-card-requirements">
+                    ${buildRequirementBadges(job)}
+                  </div>
+                  ${job.blockerReason ? `<p class="muted board-card-note">${job.blockerStage || stage} | ${job.blockerReason}</p>` : ""}
+                  <div class="job-actions compact-actions">
                     <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
                     ${!job.assignedTo ? `<button class="action-btn" data-action="assign-job" data-id="${job.id}">Assign</button>` : ""}
-                    <button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>
                   </div>
                 </article>
               `;
@@ -483,6 +578,10 @@
         </div>
         <div class="job-actions">
           <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
+          ${!isAccepted(job) ? `<button class="action-btn" data-action="accept-job" data-id="${job.id}">Accept job</button>` : ""}
+          ${["Scheduled", "Not Started"].includes(getLifecycleStage(job)) && !hasStarted(job)
+            ? `<button class="action-btn" data-action="start-job" data-id="${job.id}">Start job</button>`
+            : ""}
           <button class="action-btn" data-action="advance-stage" data-id="${job.id}">Advance stage</button>
           <button class="action-btn" data-action="update-hours" data-id="${job.id}">Log hours</button>
           <button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>
@@ -491,6 +590,9 @@
             : `<button class="action-btn" data-action="add-blocker" data-id="${job.id}">Report blocker</button>`}
         </div>
         ${renderUpdatesPreview(job.id)}
+        <div class="job-tags requirement-row">
+          ${buildRequirementBadges(job)}
+        </div>
       </article>
     `).join("") : emptyState("No assigned field jobs match the current filters.");
   }
@@ -609,8 +711,8 @@
   }
 
   function nextLifecycleStage(currentStatus) {
-    const currentIndex = lifecycleStages.indexOf(currentStatus);
-    return lifecycleStages[Math.min(currentIndex + 1, lifecycleStages.length - 1)] || lifecycleStages[0];
+    const currentIndex = visibleLifecycleStages.indexOf(currentStatus);
+    return visibleLifecycleStages[Math.min(currentIndex + 1, visibleLifecycleStages.length - 1)] || visibleLifecycleStages[0];
   }
 
   async function updateJob(jobId, payload) {
@@ -652,12 +754,15 @@
       <article class="info-card">
         <strong>${job.title}</strong><br>
         <span class="muted">${job.market} | ${job.jobType}</span><br>
-        <span class="muted">Current stage: ${job.lifecycleStage}</span><br>
+        <span class="muted">Current stage: ${getLifecycleStage(job)}</span><br>
+        <span class="muted">Admin signoff: ${isAdminApproved(job) ? "Complete" : "Pending"}</span><br>
+        <span class="muted">Team accepted: ${isAccepted(job) ? "Complete" : "Pending"}</span><br>
+        <span class="muted">Started: ${hasStarted(job) ? "Yes" : "No"}</span><br>
         <span class="muted">Blocker: ${job.blockerReason ? `${job.blockerStage || job.lifecycleStage} | ${job.blockerReason}` : "None"}</span>
       </article>
     `;
-    elements.jobDetailStageSelect.innerHTML = lifecycleStages.map((stage) => `<option value="${stage}">${stage}</option>`).join("");
-    elements.jobDetailStageSelect.value = job.lifecycleStage || "Uploaded";
+    elements.jobDetailStageSelect.innerHTML = editableLifecycleStages.map((stage) => `<option value="${stage}">${stage}</option>`).join("");
+    elements.jobDetailStageSelect.value = mapUiStageToStoredStage(getLifecycleStage(job));
     fillAssigneeSelect(elements.jobDetailAssigneeSelect, job.assignedTo);
     elements.jobDetailForm.elements.scheduledStartAt.value = String(job.scheduledStartAt || "").slice(0, 16);
     elements.jobDetailForm.elements.priority.value = job.priority || "Medium";
@@ -707,17 +812,42 @@
     }
 
     if (action === "advance-stage") {
-      const nextStatus = nextLifecycleStage(job.lifecycleStage);
+      const nextStatus = nextLifecycleStage(getLifecycleStage(job));
       const nextCompletion = nextStatus === "Closed"
         ? 100
         : Math.min(job.completion + (nextStatus === "Completed" ? 35 : 20), 100);
       const nextHours = Number(job.actualHours || 0) + 4;
       await updateJob(jobId, {
-        lifecycleStage: nextStatus,
+        ...buildStageUpdatePayload(job, nextStatus, "the workflow controls"),
         completion: nextCompletion,
         actualHours: nextHours,
         blockerReason: nextStatus === "Completed" || nextStatus === "Closed" ? "" : job.blockerReason,
         issue: `Stage moved to ${nextStatus}.`
+      });
+      return;
+    }
+
+    if (action === "admin-signoff") {
+      await updateJob(jobId, {
+        adminApproved: true,
+        issue: "Admin signoff completed."
+      });
+      return;
+    }
+
+    if (action === "accept-job") {
+      await updateJob(jobId, {
+        accepted: true,
+        issue: "Assigned team accepted the job."
+      });
+      return;
+    }
+
+    if (action === "start-job") {
+      await updateJob(jobId, {
+        started: true,
+        lifecycleStage: "In Progress",
+        issue: "Field crew started the job."
       });
       return;
     }
@@ -729,7 +859,7 @@
       }
       await updateJob(jobId, {
         blockerReason,
-        blockerStage: job.lifecycleStage,
+        blockerStage: getLifecycleStage(job),
         issue: blockerReason
       });
       return;
@@ -898,7 +1028,7 @@
       const form = new FormData(elements.jobDetailForm);
       const assignedTo = String(form.get("assignedTo") || "");
       await updateJob(Number(form.get("jobId")), {
-        lifecycleStage: String(form.get("lifecycleStage") || "Uploaded"),
+        lifecycleStage: mapUiStageToStoredStage(String(form.get("lifecycleStage") || "Uploaded")),
         assignedTo,
         scheduledStartAt: form.get("scheduledStartAt"),
         priority: form.get("priority"),
@@ -917,7 +1047,8 @@
       if (!card || !appState.session || appState.session.role !== "admin") {
         return;
       }
-      event.dataTransfer.setData("text/plain", card.dataset.dragJobId);
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(dragMimeType, card.dataset.dragJobId);
     });
 
     document.body.addEventListener("dragover", (event) => {
@@ -933,12 +1064,16 @@
         return;
       }
       event.preventDefault();
-      const jobId = Number(event.dataTransfer.getData("text/plain"));
+      const jobId = Number(event.dataTransfer.getData(dragMimeType));
       const stage = dropZone.dataset.stageDrop;
       if (!jobId || !stage) {
         return;
       }
-      updateJob(jobId, { lifecycleStage: stage, issue: `Stage moved to ${stage} from the admin board.` }).catch((error) => {
+      const job = appState.jobs.find((item) => Number(item.id) === jobId);
+      if (!job) {
+        return;
+      }
+      updateJob(jobId, buildStageUpdatePayload(job, stage, "the admin board")).catch((error) => {
         window.alert(error.message);
       });
     });

@@ -29,7 +29,7 @@ const mimeTypes = {
   ".txt": "text/plain; charset=utf-8"
 };
 
-const lifecycleStages = ["Uploaded", "Admin Approved", "Assigned", "Accepted", "Scheduled", "In Progress", "Completed", "Admin Reviewed", "Closed"];
+const lifecycleStages = ["Uploaded", "Assigned", "Scheduled", "Not Started", "In Progress", "Completed", "Admin Reviewed", "Closed"];
 const maxAttachmentBatchBytes = 30 * 1024 * 1024;
 const allowedAttachmentMimeTypes = new Set([
   "image/jpeg",
@@ -59,11 +59,21 @@ function createToken(prefix = "fs") {
 }
 
 function currentLifecycle(job) {
-  return job.lifecycleStage || "Uploaded";
+  const rawStage = job.lifecycleStage || "Uploaded";
+  if (rawStage === "Accepted") {
+    return "Assigned";
+  }
+  if (rawStage === "Admin Approved") {
+    return job.assignedTo ? "Assigned" : "Uploaded";
+  }
+  if (rawStage === "Scheduled" && !job.startedAt && new Date(job.scheduledStartAt).getTime() <= Date.now()) {
+    return "Not Started";
+  }
+  return rawStage;
 }
 
 function calculateDurationVariance(plannedHours, actualHours) {
-  return Math.round((Number(actualHours || 0) - Number(plannedHours || 0)) * 10) / 10;
+  return Math.round(Number(actualHours || 0) - Number(plannedHours || 0));
 }
 
 function sanitizeFileSegment(value) {
@@ -249,6 +259,9 @@ async function getAppState(forUser) {
   const crews = await db.listCrewsWithUtilization();
   const allJobs = await db.listJobs();
   const jobs = forUser.role === "field" ? allJobs.filter((job) => job.assignedTo === forUser.name) : allJobs;
+  jobs.forEach((job) => {
+    job.displayStage = currentLifecycle(job);
+  });
   const updates = await db.listJobUpdates(jobs.map((job) => job.id));
   const updatesByJob = Object.fromEntries(jobs.map((job) => [job.id, []]));
   updates.forEach((update) => {
@@ -431,11 +444,21 @@ const server = http.createServer(async (req, res) => {
         next.laborCost = body.laborCost ?? next.laborCost;
         next.plannedHours = body.plannedHours ?? next.plannedHours;
         next.lifecycleStage = body.lifecycleStage ?? next.lifecycleStage;
+        next.adminApproved = body.adminApproved ?? next.adminApproved;
+      }
+
+      if (body.accepted === true && next.assignedTo) {
+        next.acceptedAt = next.acceptedAt || nowIso();
+      }
+      if (body.started === true) {
+        next.startedAt = next.startedAt || nowIso();
+        next.lifecycleStage = "In Progress";
       }
 
       next.completion = body.completion ?? next.completion;
       next.actualHours = body.actualHours ?? next.actualHours;
       next.blockerReason = body.blockerReason ?? next.blockerReason;
+      next.blockerStage = body.blockerStage ?? next.blockerStage;
       next.issue = body.issue ?? next.issue;
       next.durationVariance = calculateDurationVariance(next.plannedHours, next.actualHours);
 
@@ -443,8 +466,18 @@ const server = http.createServer(async (req, res) => {
         next.lifecycleStage = "Uploaded";
       }
 
-      if (next.assignedTo && next.lifecycleStage === "Uploaded") {
-        next.lifecycleStage = "Assigned";
+      if (next.lifecycleStage !== "Uploaded" && !next.adminApproved) {
+        sendJson(res, 400, { error: "Admin signoff is required before moving the job forward" });
+        return;
+      }
+
+      if (next.lifecycleStage === "Scheduled" && !next.acceptedAt) {
+        sendJson(res, 400, { error: "Assigned team must accept the job before it can be scheduled" });
+        return;
+      }
+
+      if (["In Progress", "Completed", "Admin Reviewed", "Closed"].includes(next.lifecycleStage) && !next.startedAt) {
+        next.startedAt = nowIso();
       }
 
       if (next.blockerReason && !next.blockerStage) {
@@ -460,7 +493,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       next.intakeStatus = next.lifecycleStage;
-      next.fieldStatus = next.lifecycleStage;
+      next.fieldStatus = next.lifecycleStage === "Not Started" ? "Scheduled" : next.lifecycleStage;
 
       await db.updateJob(jobId, next);
       sendJson(res, 200, { ok: true });

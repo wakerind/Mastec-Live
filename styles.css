@@ -527,6 +527,10 @@ button:hover {
   margin-top: 14px;
 }
 
+.compact-actions {
+  margin-top: 10px;
+}
+
 .action-btn {
   border: 1px solid var(--line);
   background: white;
@@ -548,7 +552,7 @@ button:hover {
 .stage-board {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(250px, 1fr);
+  grid-auto-columns: minmax(220px, 1fr);
   gap: 18px;
   overflow-x: auto;
   padding-bottom: 8px;
@@ -579,10 +583,62 @@ button:hover {
 
 .board-card {
   cursor: grab;
+  padding: 14px;
 }
 
 .board-card:active {
   cursor: grabbing;
+}
+
+.board-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+}
+
+.board-card-top h4 {
+  font-size: 1rem;
+  line-height: 1.15;
+}
+
+.board-card-team {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.board-card-meta,
+.board-card-requirements,
+.sheet-requirements,
+.requirement-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.board-card-meta,
+.board-card-requirements {
+  margin-top: 10px;
+}
+
+.board-card-note {
+  margin: 10px 0 0;
+}
+
+.requirement-ready {
+  background: rgba(45, 122, 85, 0.12);
+  color: var(--success);
+}
+
+.requirement-pending {
+  background: rgba(213, 157, 32, 0.14);
+  color: #9b7314;
+}
+
+.blocker-pill {
+  background: rgba(187, 77, 62, 0.12);
+  color: var(--danger);
 }
 
 .empty-stage {
@@ -644,6 +700,10 @@ button:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.sheet-requirements {
+  margin-bottom: 10px;
 }
 
 .update-list {
@@ -708,6 +768,18 @@ button:hover {
   display: grid;
   grid-template-columns: 1.1fr 0.9fr;
   gap: 18px;
+}
+
+.status.not-started,
+.sheet-stage.not-started {
+  background: rgba(187, 77, 62, 0.12);
+  color: var(--danger);
+}
+
+.status.admin-reviewed,
+.sheet-stage.admin-reviewed {
+  background: rgba(47, 109, 177, 0.12);
+  color: var(--info);
 }
 
 .detail-section {

@@ -51,6 +51,21 @@ function hydrateLegacyJobData(db) {
             ELSE 'Uploaded'
           END
         ELSE COALESCE(blocker_stage, '')
+      END,
+      admin_approved = CASE
+        WHEN COALESCE(admin_approved, 0) != 0 THEN admin_approved
+        WHEN COALESCE(assigned_to, '') != '' OR intake_status IN ('Approved', 'Review', 'Assigned', 'Scheduled') THEN 1
+        ELSE 0
+      END,
+      accepted_at = CASE
+        WHEN accepted_at IS NOT NULL THEN accepted_at
+        WHEN lifecycle_stage IN ('Accepted', 'Scheduled', 'In Progress', 'Completed', 'Admin Reviewed', 'Closed') THEN created_at
+        ELSE NULL
+      END,
+      started_at = CASE
+        WHEN started_at IS NOT NULL THEN started_at
+        WHEN lifecycle_stage IN ('In Progress', 'Completed', 'Admin Reviewed', 'Closed') THEN created_at
+        ELSE NULL
       END
   `);
   db.exec(`
@@ -163,6 +178,9 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       blocker_reason TEXT NOT NULL DEFAULT '',
       blocker_stage TEXT NOT NULL DEFAULT '',
       lifecycle_stage TEXT NOT NULL DEFAULT 'Uploaded',
+      admin_approved INTEGER NOT NULL DEFAULT 0,
+      accepted_at TEXT,
+      started_at TEXT,
       created_at TEXT NOT NULL,
       created_by_user_id INTEGER REFERENCES users(id)
     );
@@ -196,6 +214,9 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN blocker_reason TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN blocker_stage TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN lifecycle_stage TEXT NOT NULL DEFAULT 'Uploaded'");
+  addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN admin_approved INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN accepted_at TEXT");
+  addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN started_at TEXT");
   addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN attachment_name TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN attachment_path TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN attachment_mime TEXT NOT NULL DEFAULT ''");
@@ -234,11 +255,7 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         ? "Completed"
         : assignedTo
           ? "Assigned"
-          : intakeStatus === "Submitted"
-            ? "Uploaded"
-            : intakeStatus === "Review"
-              ? "Admin Approved"
-              : "Uploaded";
+          : "Uploaded";
       insertJob.run(
         title,
         market,
@@ -258,6 +275,9 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         blockerReason,
         blockerReason ? lifecycleStage : "",
         lifecycleStage,
+        lifecycleStage !== "Uploaded" ? 1 : 0,
+        null,
+        null,
         issue,
         qualityScore,
         durationVariance,
@@ -350,6 +370,9 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
           COALESCE(blocker_reason, '') AS blockerReason,
           COALESCE(blocker_stage, '') AS blockerStage,
           COALESCE(lifecycle_stage, 'Uploaded') AS lifecycleStage,
+          admin_approved AS adminApproved,
+          accepted_at AS acceptedAt,
+          started_at AS startedAt,
           issue,
           quality_score AS qualityScore,
           duration_variance AS durationVariance,
@@ -379,6 +402,9 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
           COALESCE(blocker_reason, '') AS blockerReason,
           COALESCE(blocker_stage, '') AS blockerStage,
           COALESCE(lifecycle_stage, 'Uploaded') AS lifecycleStage,
+          admin_approved AS adminApproved,
+          accepted_at AS acceptedAt,
+          started_at AS startedAt,
           issue,
           quality_score AS qualityScore,
           duration_variance AS durationVariance
@@ -394,8 +420,8 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         INSERT INTO jobs (
           title, market, requested_by, job_type, priority, intake_status, scheduled_start_at,
           assigned_to, field_status, completion, budget, job_value, labor_cost, planned_hours,
-          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, issue, quality_score, duration_variance, created_at, created_by_user_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, started_at, issue, quality_score, duration_variance, created_at, created_by_user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         title,
         market,
@@ -405,7 +431,7 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         assignedTo ? "Assigned" : "Uploaded",
         scheduledStartAt,
         assignedTo || null,
-        assignedTo ? "Assigned" : "Assigned",
+        assignedTo ? "Assigned" : "Uploaded",
         0,
         normalizedJobValue / 1000000,
         normalizedJobValue,
@@ -415,6 +441,9 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         blockerReason || "",
         blockerReason ? lifecycleStage : "",
         lifecycleStage,
+        0,
+        null,
+        null,
         assignedTo
           ? "Job created and assigned. Waiting on crew acknowledgement."
           : "Job uploaded. Review scope, validate materials, and assign before the 24-hour start window.",
@@ -430,7 +459,7 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         UPDATE jobs
         SET intake_status = ?, assigned_to = ?, scheduled_start_at = ?, priority = ?,
             field_status = ?, completion = ?, issue = ?, job_value = ?, labor_cost = ?,
-            planned_hours = ?, actual_hours = ?, blocker_reason = ?, blocker_stage = ?, lifecycle_stage = ?, duration_variance = ?,
+            planned_hours = ?, actual_hours = ?, blocker_reason = ?, blocker_stage = ?, lifecycle_stage = ?, admin_approved = ?, accepted_at = ?, started_at = ?, duration_variance = ?,
             budget = ?
         WHERE id = ?
       `).run(
@@ -448,7 +477,10 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         next.blockerReason || "",
         next.blockerStage || "",
         next.lifecycleStage || "Uploaded",
-        Number(next.durationVariance || 0),
+        next.adminApproved ? 1 : 0,
+        next.acceptedAt || null,
+        next.startedAt || null,
+        Math.round(Number(next.durationVariance || 0)),
         Number(next.jobValue || 0) / 1000000,
         jobId
       );

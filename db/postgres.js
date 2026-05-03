@@ -41,6 +41,21 @@ async function hydrateLegacyJobData(pool) {
             ELSE 'Uploaded'
           END
         ELSE COALESCE(blocker_stage, '')
+      END,
+      admin_approved = CASE
+        WHEN admin_approved IS TRUE THEN admin_approved
+        WHEN COALESCE(assigned_to, '') != '' OR intake_status IN ('Approved', 'Review', 'Assigned', 'Scheduled') THEN TRUE
+        ELSE FALSE
+      END,
+      accepted_at = CASE
+        WHEN accepted_at IS NOT NULL THEN accepted_at
+        WHEN lifecycle_stage IN ('Accepted', 'Scheduled', 'In Progress', 'Completed', 'Admin Reviewed', 'Closed') THEN created_at
+        ELSE NULL
+      END,
+      started_at = CASE
+        WHEN started_at IS NOT NULL THEN started_at
+        WHEN lifecycle_stage IN ('In Progress', 'Completed', 'Admin Reviewed', 'Closed') THEN created_at
+        ELSE NULL
       END
   `);
   await pool.query(`
@@ -92,17 +107,13 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         ? "Completed"
         : assignedTo
           ? "Assigned"
-          : intakeStatus === "Submitted"
-            ? "Uploaded"
-            : intakeStatus === "Review"
-              ? "Admin Approved"
-              : "Uploaded";
+          : "Uploaded";
       await pool.query(`
         INSERT INTO jobs (
           title, market, requested_by, job_type, priority, intake_status, scheduled_start_at,
           assigned_to, field_status, completion, budget, job_value, labor_cost, planned_hours,
-          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, issue, quality_score, duration_variance, created_at, created_by_user_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, started_at, issue, quality_score, duration_variance, created_at, created_by_user_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
       `, [
         title,
         market,
@@ -122,6 +133,9 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         blockerReason,
         blockerReason ? lifecycleStage : "",
         lifecycleStage,
+        lifecycleStage !== "Uploaded",
+        null,
+        null,
         issue,
         qualityScore,
         durationVariance,
@@ -235,6 +249,9 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
           COALESCE(blocker_reason, '') AS "blockerReason",
           COALESCE(blocker_stage, '') AS "blockerStage",
           COALESCE(lifecycle_stage, 'Uploaded') AS "lifecycleStage",
+          admin_approved AS "adminApproved",
+          accepted_at AS "acceptedAt",
+          started_at AS "startedAt",
           issue,
           quality_score AS "qualityScore",
           duration_variance AS "durationVariance",
@@ -264,6 +281,9 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
           COALESCE(blocker_reason, '') AS "blockerReason",
           COALESCE(blocker_stage, '') AS "blockerStage",
           COALESCE(lifecycle_stage, 'Uploaded') AS "lifecycleStage",
+          admin_approved AS "adminApproved",
+          accepted_at AS "acceptedAt",
+          started_at AS "startedAt",
           issue,
           quality_score AS "qualityScore",
           duration_variance AS "durationVariance"
@@ -279,8 +299,8 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         INSERT INTO jobs (
           title, market, requested_by, job_type, priority, intake_status, scheduled_start_at,
           assigned_to, field_status, completion, budget, job_value, labor_cost, planned_hours,
-          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, issue, quality_score, duration_variance, created_at, created_by_user_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, started_at, issue, quality_score, duration_variance, created_at, created_by_user_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
         RETURNING id
       `, [
         title,
@@ -291,7 +311,7 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         assignedTo ? "Assigned" : "Uploaded",
         scheduledStartAt,
         assignedTo || null,
-        assignedTo ? "Assigned" : "Assigned",
+        assignedTo ? "Assigned" : "Uploaded",
         0,
         normalizedJobValue / 1000000,
         normalizedJobValue,
@@ -301,6 +321,9 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         blockerReason || "",
         blockerReason ? lifecycleStage : "",
         lifecycleStage,
+        false,
+        null,
+        null,
         assignedTo
           ? "Job created and assigned. Waiting on crew acknowledgement."
           : "Job uploaded. Review scope, validate materials, and assign before the 24-hour start window.",
@@ -316,9 +339,9 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         UPDATE jobs
         SET intake_status = $1, assigned_to = $2, scheduled_start_at = $3::timestamptz, priority = $4,
             field_status = $5, completion = $6, issue = $7, job_value = $8, labor_cost = $9,
-            planned_hours = $10, actual_hours = $11, blocker_reason = $12, blocker_stage = $13, lifecycle_stage = $14, duration_variance = $15,
-            budget = $16
-        WHERE id = $17
+            planned_hours = $10, actual_hours = $11, blocker_reason = $12, blocker_stage = $13, lifecycle_stage = $14, admin_approved = $15, accepted_at = $16, started_at = $17, duration_variance = $18,
+            budget = $19
+        WHERE id = $20
       `, [
         next.intakeStatus,
         next.assignedTo || null,
@@ -334,7 +357,10 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         next.blockerReason || "",
         next.blockerStage || "",
         next.lifecycleStage || "Uploaded",
-        Number(next.durationVariance || 0),
+        Boolean(next.adminApproved),
+        next.acceptedAt || null,
+        next.startedAt || null,
+        Math.round(Number(next.durationVariance || 0)),
         Number(next.jobValue || 0) / 1000000,
         jobId
       ]);
