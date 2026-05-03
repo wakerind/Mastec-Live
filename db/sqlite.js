@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { seedCrews, seedJobs, seedUsers } from "./seed-data.js";
 
