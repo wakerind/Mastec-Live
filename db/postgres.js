@@ -156,13 +156,13 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
     },
     async listInvites() {
       return (await pool.query(`
-        SELECT id, email, role, token, created_at AS "createdAt", redeemed_at AS "redeemedAt"
+        SELECT id::int AS id, email, role, token, created_at AS "createdAt", redeemed_at AS "redeemedAt"
         FROM invites ORDER BY id DESC
       `)).rows;
     },
     async listUsers() {
       return (await pool.query(`
-        SELECT id, email, name, role, status, created_at AS "createdAt"
+        SELECT id::int AS id, email, name, role, status, created_at AS "createdAt"
         FROM users ORDER BY id DESC
       `)).rows;
     },
@@ -177,7 +177,7 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
     async listJobs() {
       return (await pool.query(`
         SELECT
-          id,
+          id::int AS id,
           title,
           market,
           requested_by AS "requestedBy",
@@ -204,7 +204,7 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
     async findJobById(jobId) {
       return (await pool.query(`
         SELECT
-          id,
+          id::int AS id,
           title,
           market,
           requested_by AS "requestedBy",

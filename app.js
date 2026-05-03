@@ -551,7 +551,7 @@
 
     const action = actionButton.dataset.action;
     const jobId = Number(actionButton.dataset.id);
-    const job = appState.jobs.find((item) => item.id === jobId);
+    const job = appState.jobs.find((item) => String(item.id) === String(jobId));
     if (!job) {
       return;
     }

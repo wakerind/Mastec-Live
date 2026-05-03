@@ -63,6 +63,11 @@ Demo field login:
 
 Use these commands from `C:\Users\yguev\OneDrive\Projects\Mastec Live` when you want to save changes and refresh GitHub/Render.
 
+Example credentials for testing:
+
+- Admin: `admin@fieldsight.local` / `Admin123!`
+- Field: `crew1@fieldsight.local` / `Field123!`
+
 Start the local app:
 
 `node server.js`
