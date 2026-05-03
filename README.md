@@ -54,6 +54,52 @@ Demo admin login:
 - email: `admin@fieldsight.local`
 - password: `Admin123!`
 
+Demo field login:
+
+- email: `crew1@fieldsight.local`
+- password: `Field123!`
+
+## Refresh commands
+
+Use these commands from `C:\Users\yguev\OneDrive\Projects\Mastec Live` when you want to save changes and refresh GitHub/Render.
+
+Start the local app:
+
+`node server.js`
+
+Open the local app:
+
+`http://localhost:4173`
+
+Save changes to Git:
+
+```powershell
+& "C:\Program Files\Git\cmd\git.exe" add .
+& "C:\Program Files\Git\cmd\git.exe" commit -m "Describe the changes"
+```
+
+Push normal updates to GitHub:
+
+```powershell
+& "C:\Program Files\Git\cmd\git.exe" push
+```
+
+If GitHub rejects the push because the remote history is different and you intentionally want this local version to replace it:
+
+```powershell
+& "C:\Program Files\Git\cmd\git.exe" push -u origin main --force
+```
+
+Check what changed before pushing:
+
+```powershell
+& "C:\Program Files\Git\cmd\git.exe" status
+```
+
+After a push, Render should redeploy automatically from:
+
+`https://github.com/wakerind/Mastec-Live`
+
 ## App structure
 
 - `index.html` contains the app shell
