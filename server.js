@@ -183,6 +183,14 @@ async function getAppState(forUser) {
   const crews = await db.listCrewsWithUtilization();
   const allJobs = await db.listJobs();
   const jobs = forUser.role === "field" ? allJobs.filter((job) => job.assignedTo === forUser.name) : allJobs;
+  const updates = await db.listJobUpdates(jobs.map((job) => job.id));
+  const updatesByJob = Object.fromEntries(jobs.map((job) => [job.id, []]));
+  updates.forEach((update) => {
+    if (!updatesByJob[update.jobId]) {
+      updatesByJob[update.jobId] = [];
+    }
+    updatesByJob[update.jobId].push(update);
+  });
   return {
     session: {
       id: forUser.id,
@@ -191,6 +199,7 @@ async function getAppState(forUser) {
       role: forUser.role
     },
     jobs,
+    updatesByJob,
     crews,
     stageOptions: {
       intake: intakeStages,
@@ -387,6 +396,33 @@ const server = http.createServer(async (req, res) => {
 
       await db.updateJob(jobId, next);
       sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname.match(/^\/api\/jobs\/\d+\/updates$/)) {
+      const user = await requireUser(req, res);
+      if (!user) {
+        return;
+      }
+      const jobId = Number(url.pathname.split("/")[3]);
+      const body = await readBody(req);
+      const existing = await db.findJobById(jobId);
+      if (!existing) {
+        sendJson(res, 404, { error: "Job not found" });
+        return;
+      }
+      if (user.role === "field" && existing.assignedTo !== user.name) {
+        sendJson(res, 403, { error: "Field users can only update their assigned jobs" });
+        return;
+      }
+      await db.createJobUpdate({
+        jobId,
+        authorName: user.name,
+        authorRole: user.role,
+        note: String(body.note || ""),
+        photoUrl: String(body.photoUrl || "")
+      });
+      sendJson(res, 201, { ok: true });
       return;
     }
 

@@ -63,7 +63,18 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS planned_hours NUMERIC(10, 2) NOT NULL 
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS actual_hours NUMERIC(10, 2) NOT NULL DEFAULT 0;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS blocker_reason TEXT NOT NULL DEFAULT '';
 
+CREATE TABLE IF NOT EXISTS job_updates (
+  id BIGSERIAL PRIMARY KEY,
+  job_id BIGINT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  author_name TEXT NOT NULL,
+  author_role TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  photo_url TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_scheduled_start_at ON jobs (scheduled_start_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_assigned_to ON jobs (assigned_to);
 CREATE INDEX IF NOT EXISTS idx_jobs_intake_status ON jobs (intake_status);
 CREATE INDEX IF NOT EXISTS idx_jobs_field_status ON jobs (field_status);
+CREATE INDEX IF NOT EXISTS idx_job_updates_job_id ON job_updates (job_id, created_at DESC);

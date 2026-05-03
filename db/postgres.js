@@ -292,6 +292,32 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
     },
     async listCrewsWithUtilization() {
       return listCrewsWithUtilization();
+    },
+    async listJobUpdates(jobIds) {
+      if (!jobIds.length) {
+        return [];
+      }
+      return (await pool.query(`
+        SELECT
+          id::int AS id,
+          job_id::int AS "jobId",
+          author_name AS "authorName",
+          author_role AS "authorRole",
+          note,
+          photo_url AS "photoUrl",
+          created_at AS "createdAt"
+        FROM job_updates
+        WHERE job_id = ANY($1::int[])
+        ORDER BY created_at DESC, id DESC
+      `, [jobIds])).rows;
+    },
+    async createJobUpdate({ jobId, authorName, authorRole, note, photoUrl }) {
+      const result = await pool.query(`
+        INSERT INTO job_updates (job_id, author_name, author_role, note, photo_url, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id
+      `, [jobId, authorName, authorRole, note || "", photoUrl || "", nowIso()]);
+      return Number(result.rows[0].id);
     }
   };
 }

@@ -388,7 +388,8 @@ button:hover {
 .crew-card,
 .info-card,
 .alert-card,
-.kpi-card {
+.kpi-card,
+.update-card {
   padding: 18px;
   border-radius: 22px;
   background: var(--surface-strong);
@@ -587,6 +588,40 @@ button:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.update-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.update-card {
+  padding: 14px;
+  border: 1px solid var(--line);
+}
+
+.update-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.update-card p {
+  margin: 0;
+}
+
+.update-link {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--info);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.update-link:hover {
+  text-decoration: underline;
 }
 
 .dialog-card {

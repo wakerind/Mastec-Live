@@ -7,6 +7,7 @@
   let appState = {
     session: null,
     jobs: [],
+    updatesByJob: {},
     crews: [],
     kpis: { teams: [], contractors: [] }
   };
@@ -45,6 +46,15 @@
     jobForm: document.getElementById("jobForm"),
     closeJobDialog: document.getElementById("closeJobDialog"),
     cancelJobDialog: document.getElementById("cancelJobDialog"),
+    assignDialog: document.getElementById("assignDialog"),
+    assignForm: document.getElementById("assignForm"),
+    assignCrewSelect: document.getElementById("assignCrewSelect"),
+    closeAssignDialog: document.getElementById("closeAssignDialog"),
+    cancelAssignDialog: document.getElementById("cancelAssignDialog"),
+    updateDialog: document.getElementById("updateDialog"),
+    updateForm: document.getElementById("updateForm"),
+    closeUpdateDialog: document.getElementById("closeUpdateDialog"),
+    cancelUpdateDialog: document.getElementById("cancelUpdateDialog"),
     demoCreds: document.getElementById("demoCreds"),
     loginError: document.getElementById("loginError"),
     inviteError: document.getElementById("inviteError")
@@ -108,6 +118,31 @@
   function getStageSummary(job) {
     const lifecycle = getLifecycleStage(job);
     return `${lifecycle}${job.blockerReason ? " | Blocker active" : ""}`;
+  }
+
+  function getJobUpdates(jobId) {
+    return appState.updatesByJob?.[jobId] || [];
+  }
+
+  function renderUpdatesPreview(jobId) {
+    const updates = getJobUpdates(jobId).slice(0, 2);
+    if (!updates.length) {
+      return `<div class="update-list"><p class="muted">No field updates logged yet.</p></div>`;
+    }
+    return `
+      <div class="update-list">
+        ${updates.map((update) => `
+          <article class="update-card">
+            <div class="update-card-header">
+              <strong>${update.authorName}</strong>
+              <span class="muted">${formatDateTime(update.createdAt)}</span>
+            </div>
+            <p>${update.note}</p>
+            ${update.photoUrl ? `<a class="update-link" href="${update.photoUrl}" target="_blank" rel="noreferrer">Open photo</a>` : ""}
+          </article>
+        `).join("")}
+      </div>
+    `;
   }
 
   function setToken(token) {
@@ -269,6 +304,7 @@
     }
     if (!job.assignedTo) {
       actions.push(`<button class="action-btn" data-action="assign-fast" data-id="${job.id}">Quick assign</button>`);
+      actions.push(`<button class="action-btn" data-action="assign-job" data-id="${job.id}">Choose assignee</button>`);
     }
     if (job.assignedTo && !["Completed", "Closed"].includes(lifecycle)) {
       actions.push(`<button class="action-btn" data-action="advance-status" data-id="${job.id}">Next field stage</button>`);
@@ -278,6 +314,7 @@
     } else {
       actions.push(`<button class="action-btn" data-action="add-blocker" data-id="${job.id}">Add blocker</button>`);
     }
+    actions.push(`<button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>`);
 
     return actions.join("");
   }
@@ -365,8 +402,11 @@
           <p class="muted">${job.blockerReason || job.issue}</p>
           <div class="job-actions">
             ${!job.assignedTo ? `<button class="action-btn" data-action="assign-fast" data-id="${job.id}">Quick assign</button>` : ""}
+            ${!job.assignedTo ? `<button class="action-btn" data-action="assign-job" data-id="${job.id}">Choose assignee</button>` : ""}
             <button class="action-btn" data-action="advance-status" data-id="${job.id}">Advance stage</button>
+            <button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>
           </div>
+          ${renderUpdatesPreview(job.id)}
         </article>
       `;
     }).join("") : emptyState("No assignment items match the current filters.");
@@ -403,10 +443,12 @@
         <div class="job-actions">
           <button class="action-btn" data-action="advance-status" data-id="${job.id}">Advance stage</button>
           <button class="action-btn" data-action="update-hours" data-id="${job.id}">Log hours</button>
+          <button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>
           ${job.blockerReason
             ? `<button class="action-btn" data-action="clear-blocker" data-id="${job.id}">Clear blocker</button>`
             : `<button class="action-btn" data-action="add-blocker" data-id="${job.id}">Report blocker</button>`}
         </div>
+        ${renderUpdatesPreview(job.id)}
       </article>
     `).join("") : emptyState("No assigned field jobs match the current filters.");
   }
@@ -543,6 +585,21 @@
     await refreshApp();
   }
 
+  function openAssignDialog(jobId) {
+    elements.assignForm.elements.jobId.value = String(jobId);
+    elements.assignCrewSelect.innerHTML = appState.crews
+      .map((crew) => `<option value="${crew.name}">${crew.name} | ${crew.available} available | ${crew.type}</option>`)
+      .join("");
+    elements.assignDialog.showModal();
+  }
+
+  function openUpdateDialog(jobId) {
+    elements.updateForm.elements.jobId.value = String(jobId);
+    elements.updateForm.elements.note.value = "";
+    elements.updateForm.elements.photoUrl.value = "";
+    elements.updateDialog.showModal();
+  }
+
   async function handleActionClick(event) {
     const actionButton = event.target.closest("[data-action]");
     if (!actionButton) {
@@ -578,6 +635,11 @@
       return;
     }
 
+    if (action === "assign-job") {
+      openAssignDialog(jobId);
+      return;
+    }
+
     if (action === "advance-status") {
       const nextStatus = nextFieldStage(job.fieldStatus === "Blocked" ? "In Progress" : job.fieldStatus);
       const nextCompletion = nextStatus === "Closed"
@@ -604,6 +666,11 @@
         blockerReason,
         issue: blockerReason
       });
+      return;
+    }
+
+    if (action === "log-update") {
+      openUpdateDialog(jobId);
       return;
     }
 
@@ -686,6 +753,10 @@
     elements.refreshDataButton.addEventListener("click", refreshApp);
     elements.closeJobDialog.addEventListener("click", () => elements.jobDialog.close());
     elements.cancelJobDialog.addEventListener("click", () => elements.jobDialog.close());
+    elements.closeAssignDialog.addEventListener("click", () => elements.assignDialog.close());
+    elements.cancelAssignDialog.addEventListener("click", () => elements.assignDialog.close());
+    elements.closeUpdateDialog.addEventListener("click", () => elements.updateDialog.close());
+    elements.cancelUpdateDialog.addEventListener("click", () => elements.updateDialog.close());
 
     elements.jobForm.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -724,6 +795,35 @@
       });
       elements.inviteForm.reset();
       await loadAdminData();
+    });
+
+    elements.assignForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = new FormData(elements.assignForm);
+      const jobId = Number(form.get("jobId"));
+      const assignedTo = String(form.get("assignedTo") || "");
+      await updateJob(jobId, {
+        assignedTo,
+        intakeStatus: "Assigned",
+        fieldStatus: "Assigned",
+        issue: `Assigned to ${assignedTo}. Waiting on acknowledgement.`
+      });
+      elements.assignDialog.close();
+    });
+
+    elements.updateForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = new FormData(elements.updateForm);
+      const jobId = Number(form.get("jobId"));
+      await api(`/api/jobs/${jobId}/updates`, {
+        method: "POST",
+        body: JSON.stringify({
+          note: form.get("note"),
+          photoUrl: form.get("photoUrl")
+        })
+      });
+      elements.updateDialog.close();
+      await refreshApp();
     });
 
     elements.demoCreds.addEventListener("click", () => {

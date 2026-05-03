@@ -303,6 +303,45 @@
     </form>
   </dialog>
 
+  <dialog id="assignDialog">
+    <form class="dialog-card" id="assignForm">
+      <div class="dialog-header">
+        <h3>Assign job</h3>
+        <button class="icon-btn" type="button" id="closeAssignDialog" aria-label="Close">x</button>
+      </div>
+      <input type="hidden" name="jobId">
+      <label>Assign to
+        <select name="assignedTo" id="assignCrewSelect" required></select>
+      </label>
+      <menu class="dialog-actions">
+        <button class="secondary-btn" type="button" id="cancelAssignDialog">Cancel</button>
+        <button class="primary-btn" type="submit">Assign job</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="updateDialog">
+    <form class="dialog-card" id="updateForm">
+      <div class="dialog-header">
+        <h3>Add field update</h3>
+        <button class="icon-btn" type="button" id="closeUpdateDialog" aria-label="Close">x</button>
+      </div>
+      <input type="hidden" name="jobId">
+      <div class="dialog-grid">
+        <label class="span-2">Update note
+          <input name="note" placeholder="What changed on this job?" required>
+        </label>
+        <label class="span-2">Photo link
+          <input name="photoUrl" type="url" placeholder="https://...">
+        </label>
+      </div>
+      <menu class="dialog-actions">
+        <button class="secondary-btn" type="button" id="cancelUpdateDialog">Cancel</button>
+        <button class="primary-btn" type="submit">Save update</button>
+      </menu>
+    </form>
+  </dialog>
+
   <script src="app.js"></script>
 </body>
 </html>

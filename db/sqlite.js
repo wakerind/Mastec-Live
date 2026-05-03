@@ -128,6 +128,16 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       created_at TEXT NOT NULL,
       created_by_user_id INTEGER REFERENCES users(id)
     );
+
+    CREATE TABLE IF NOT EXISTS job_updates (
+      id INTEGER PRIMARY KEY,
+      job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+      author_name TEXT NOT NULL,
+      author_role TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      photo_url TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
   `);
 
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN job_value REAL NOT NULL DEFAULT 0");
@@ -371,6 +381,32 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
     },
     async listCrewsWithUtilization() {
       return listCrewsWithUtilization(db);
+    },
+    async listJobUpdates(jobIds) {
+      if (!jobIds.length) {
+        return [];
+      }
+      const placeholders = jobIds.map(() => "?").join(", ");
+      return db.prepare(`
+        SELECT
+          id,
+          job_id AS jobId,
+          author_name AS authorName,
+          author_role AS authorRole,
+          note,
+          photo_url AS photoUrl,
+          created_at AS createdAt
+        FROM job_updates
+        WHERE job_id IN (${placeholders})
+        ORDER BY datetime(created_at) DESC, id DESC
+      `).all(...jobIds);
+    },
+    async createJobUpdate({ jobId, authorName, authorRole, note, photoUrl }) {
+      const result = db.prepare(`
+        INSERT INTO job_updates (job_id, author_name, author_role, note, photo_url, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(jobId, authorName, authorRole, note || "", photoUrl || "", nowIso());
+      return Number(result.lastInsertRowid);
     }
   };
 }
