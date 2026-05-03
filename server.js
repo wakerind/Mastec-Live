@@ -9,6 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = __dirname;
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(rootDir, "data");
+const uploadsDir = path.join(dataDir, "uploads");
 const port = Number(process.env.PORT || 4173);
 
 const mimeTypes = {
@@ -16,11 +17,34 @@ const mimeTypes = {
   ".css": "text/css; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml"
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".pdf": "application/pdf",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".txt": "text/plain; charset=utf-8"
 };
 
 const intakeStages = ["Uploaded", "Review", "Approved", "Scheduled", "Assigned"];
 const fieldStages = ["Assigned", "Acknowledged", "En Route", "In Progress", "Blocked", "Completed", "Closed"];
+const allowedAttachmentMimeTypes = new Set([
+  "image/jpeg",
+  "image/png",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/plain"
+]);
+
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -46,6 +70,39 @@ function currentLifecycle(job) {
 
 function calculateDurationVariance(plannedHours, actualHours) {
   return Math.round((Number(actualHours || 0) - Number(plannedHours || 0)) * 10) / 10;
+}
+
+function sanitizeFileSegment(value) {
+  return String(value || "").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "file";
+}
+
+function saveAttachment({ jobId, fileName, mimeType, contentBase64 }) {
+  if (!allowedAttachmentMimeTypes.has(mimeType)) {
+    throw new Error("File type not supported");
+  }
+  const buffer = Buffer.from(String(contentBase64 || ""), "base64");
+  if (!buffer.length) {
+    throw new Error("Attachment is empty");
+  }
+  if (buffer.length > 10 * 1024 * 1024) {
+    throw new Error("Attachment exceeds 10MB limit");
+  }
+
+  const jobDir = path.join(uploadsDir, `job-${jobId}`);
+  if (!fs.existsSync(jobDir)) {
+    fs.mkdirSync(jobDir, { recursive: true });
+  }
+
+  const safeName = sanitizeFileSegment(fileName);
+  const finalName = `${Date.now()}-${safeName}`;
+  const filePath = path.join(jobDir, finalName);
+  fs.writeFileSync(filePath, buffer);
+
+  return {
+    attachmentName: fileName,
+    attachmentPath: `/uploads/job-${jobId}/${finalName}`,
+    attachmentMime: mimeType
+  };
 }
 
 const db = await createDatabase({ rootDir, dataDir, hashPassword, nowIso });
@@ -415,14 +472,40 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 403, { error: "Field users can only update their assigned jobs" });
         return;
       }
+      let attachmentMeta = {
+        attachmentName: "",
+        attachmentPath: "",
+        attachmentMime: ""
+      };
+      if (body.fileName && body.mimeType && body.contentBase64) {
+        attachmentMeta = saveAttachment({
+          jobId,
+          fileName: body.fileName,
+          mimeType: body.mimeType,
+          contentBase64: body.contentBase64
+        });
+      }
       await db.createJobUpdate({
         jobId,
         authorName: user.name,
         authorRole: user.role,
         note: String(body.note || ""),
-        photoUrl: String(body.photoUrl || "")
+        ...attachmentMeta
       });
       sendJson(res, 201, { ok: true });
+      return;
+    }
+
+    if (url.pathname.startsWith("/uploads/")) {
+      const uploadFilePath = path.normalize(path.join(uploadsDir, url.pathname.replace("/uploads/", "")));
+      if (!uploadFilePath.startsWith(uploadsDir) || !fs.existsSync(uploadFilePath) || fs.statSync(uploadFilePath).isDirectory()) {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Not found");
+        return;
+      }
+      const ext = path.extname(uploadFilePath).toLowerCase();
+      res.writeHead(200, { "Content-Type": mimeTypes[ext] || "application/octet-stream" });
+      fs.createReadStream(uploadFilePath).pipe(res);
       return;
     }
 

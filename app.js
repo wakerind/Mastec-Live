@@ -138,11 +138,28 @@
               <span class="muted">${formatDateTime(update.createdAt)}</span>
             </div>
             <p>${update.note}</p>
-            ${update.photoUrl ? `<a class="update-link" href="${update.photoUrl}" target="_blank" rel="noreferrer">Open photo</a>` : ""}
+            ${update.attachmentPath ? `<a class="update-link" href="${update.attachmentPath}" target="_blank" rel="noreferrer">Open ${update.attachmentName || "attachment"}</a>` : ""}
           </article>
         `).join("")}
       </div>
     `;
+  }
+
+  async function fileToPayload(file) {
+    if (!file) {
+      return null;
+    }
+    const arrayBuffer = await file.arrayBuffer();
+    let binary = "";
+    const bytes = new Uint8Array(arrayBuffer);
+    for (let index = 0; index < bytes.length; index += 1) {
+      binary += String.fromCharCode(bytes[index]);
+    }
+    return {
+      fileName: file.name,
+      mimeType: file.type || "application/octet-stream",
+      contentBase64: btoa(binary)
+    };
   }
 
   function setToken(token) {
@@ -596,7 +613,7 @@
   function openUpdateDialog(jobId) {
     elements.updateForm.elements.jobId.value = String(jobId);
     elements.updateForm.elements.note.value = "";
-    elements.updateForm.elements.photoUrl.value = "";
+    elements.updateForm.elements.attachment.value = "";
     elements.updateDialog.showModal();
   }
 
@@ -815,11 +832,12 @@
       event.preventDefault();
       const form = new FormData(elements.updateForm);
       const jobId = Number(form.get("jobId"));
+      const attachment = await fileToPayload(elements.updateForm.elements.attachment.files[0]);
       await api(`/api/jobs/${jobId}/updates`, {
         method: "POST",
         body: JSON.stringify({
           note: form.get("note"),
-          photoUrl: form.get("photoUrl")
+          ...(attachment || {})
         })
       });
       elements.updateDialog.close();
