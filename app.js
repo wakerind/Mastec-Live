@@ -1,7 +1,7 @@
 (function () {
   const authStorageKey = "fieldsight-auth-token";
-  const visibleLifecycleStages = ["Uploaded", "Assigned", "Scheduled", "Not Started", "In Progress", "Completed", "Admin Reviewed", "Closed"];
-  const editableLifecycleStages = ["Uploaded", "Assigned", "Scheduled", "In Progress", "Completed", "Admin Reviewed", "Closed"];
+  const visibleLifecycleStages = ["Uploaded", "Assigned", "Scheduled", "Completed", "Closed"];
+  const editableLifecycleStages = ["Uploaded", "Assigned", "Scheduled", "Completed", "Closed"];
   const maxAttachmentBatchBytes = 30 * 1024 * 1024;
   const dragMimeType = "application/x-fieldsight-job-id";
 
@@ -112,9 +112,9 @@
     return { label: "Open", className: "window-open" };
   }
 
-  function getLifecycleStage(job) {
-    if (job.displayStage) {
-      return job.displayStage;
+  function getOperationalStatus(job) {
+    if (job.activityStatus) {
+      return job.activityStatus;
     }
     const rawStage = job.lifecycleStage || "Uploaded";
     if (rawStage === "Accepted") {
@@ -123,7 +123,24 @@
     if (rawStage === "Admin Approved") {
       return "Uploaded";
     }
+    if (rawStage === "Admin Reviewed") {
+      return "Completed";
+    }
     return rawStage;
+  }
+
+  function getLifecycleStage(job) {
+    if (job.displayStage) {
+      return job.displayStage;
+    }
+    const status = getOperationalStatus(job);
+    if (["Scheduled", "Not Started", "In Progress"].includes(status)) {
+      return "Scheduled";
+    }
+    if (status === "Admin Reviewed") {
+      return "Completed";
+    }
+    return status;
   }
 
   function getStoredLifecycleStage(job) {
@@ -140,6 +157,10 @@
 
   function hasStarted(job) {
     return Boolean(job.startedAt || ["In Progress", "Completed", "Admin Reviewed", "Closed"].includes(getStoredLifecycleStage(job)));
+  }
+
+  function isAdminReviewed(job) {
+    return Boolean(job.adminReviewedAt || ["Admin Reviewed", "Closed"].includes(getStoredLifecycleStage(job)));
   }
 
   function getDefaultScreen() {
@@ -164,7 +185,7 @@
   }
 
   function mapUiStageToStoredStage(stage) {
-    return stage === "Not Started" ? "Scheduled" : stage;
+    return stage;
   }
 
   function buildStageUpdatePayload(job, stage, sourceLabel) {
@@ -173,10 +194,13 @@
       lifecycleStage: storedStage,
       issue: `Stage moved to ${stage} from ${sourceLabel}.`
     };
-    if (stage === "In Progress") {
-      payload.started = true;
+    if (stage === "Assigned") {
+      payload.resetStarted = true;
     }
-    if (["Completed", "Admin Reviewed", "Closed"].includes(stage) && !hasStarted(job)) {
+    if (stage === "Scheduled") {
+      payload.resetStarted = true;
+    }
+    if (["Completed", "Closed"].includes(stage) && !hasStarted(job)) {
       payload.started = true;
     }
     if (stage === "Completed" || stage === "Closed") {
@@ -190,6 +214,9 @@
     badges.push(`<span class="pill ${isAdminApproved(job) ? "requirement-ready" : "requirement-pending"}">Admin signoff ${isAdminApproved(job) ? "done" : "pending"}</span>`);
     if (job.assignedTo) {
       badges.push(`<span class="pill ${isAccepted(job) ? "requirement-ready" : "requirement-pending"}">Team accepted ${isAccepted(job) ? "done" : "pending"}</span>`);
+    }
+    if (["Completed", "Closed"].includes(getLifecycleStage(job))) {
+      badges.push(`<span class="pill ${isAdminReviewed(job) ? "requirement-ready" : "requirement-pending"}">Final review ${isAdminReviewed(job) ? "done" : "pending"}</span>`);
     }
     return badges.join("");
   }
@@ -376,6 +403,7 @@
           </div>
           <div class="job-meta">
             <span class="pill">${getLifecycleStage(job)}</span>
+            <span class="pill">${getOperationalStatus(job)}</span>
             <span class="pill">${job.jobType}</span>
             <span class="pill">${job.assignedTo || "Unassigned"}</span>
           </div>
@@ -397,7 +425,7 @@
         <article class="alert-card">
           <div class="alert-card-header">
             <strong>${job.title}</strong>
-            <span class="status ${getStatusClass(getLifecycleStage(job))}">${getLifecycleStage(job)}</span>
+            <span class="status ${getStatusClass(getOperationalStatus(job))}">${getOperationalStatus(job)}</span>
           </div>
           <p class="muted">${job.blockerReason ? `${job.blockerStage || job.lifecycleStage} | ${job.blockerReason}` : job.issue}</p>
           <div class="job-tags">
@@ -427,7 +455,7 @@
     if (appState.session?.role === "field" && job.assignedTo === appState.session.name && !isAccepted(job)) {
       actions.push(`<button class="action-btn" data-action="accept-job" data-id="${job.id}">Accept job</button>`);
     }
-    if (appState.session?.role === "field" && ["Scheduled", "Not Started"].includes(lifecycle) && !hasStarted(job)) {
+    if (appState.session?.role === "field" && ["Scheduled", "Not Started"].includes(getOperationalStatus(job)) && !hasStarted(job)) {
       actions.push(`<button class="action-btn" data-action="start-job" data-id="${job.id}">Start job</button>`);
     }
     if (job.blockerReason) {
@@ -475,7 +503,10 @@
               </td>
               <td>${job.market}</td>
               <td>${job.jobType}</td>
-              <td><span class="sheet-stage ${getStatusClass(getLifecycleStage(job))}">${getLifecycleStage(job)}</span></td>
+              <td>
+                <span class="sheet-stage ${getStatusClass(getLifecycleStage(job))}">${getLifecycleStage(job)}</span>
+                <div class="sheet-substatus">${getOperationalStatus(job)}</div>
+              </td>
               <td>${job.assignedTo || "Unassigned"}</td>
               <td>${formatDateTime(job.scheduledStartAt)}</td>
               <td>${formatCurrency(job.jobValue)}</td>
@@ -527,6 +558,7 @@
                   </div>
                   <div class="board-card-meta">
                     <span class="pill">${job.market}</span>
+                    <span class="pill">${getOperationalStatus(job)}</span>
                     ${job.blockerReason ? `<span class="pill blocker-pill">Blocked</span>` : ""}
                   </div>
                   <div class="board-card-requirements">
@@ -550,8 +582,8 @@
 
   function renderFieldJobs(filters) {
     const items = appState.jobs.filter((job) => {
-      const lifecycle = getLifecycleStage(job);
-      const statusMatch = filters.status === "all" || lifecycle === filters.status;
+      const status = getOperationalStatus(job);
+      const statusMatch = filters.status === "all" || status === filters.status;
       const haystack = `${job.title} ${job.market} ${job.assignedTo} ${job.blockerReason}`.toLowerCase();
       return statusMatch && (!filters.query || haystack.includes(filters.query));
     });
@@ -563,7 +595,7 @@
             <p class="eyebrow">${job.market}</p>
             <h4>${job.title}</h4>
           </div>
-          <span class="status ${getStatusClass(getLifecycleStage(job))}">${getLifecycleStage(job)}</span>
+          <span class="status ${getStatusClass(getOperationalStatus(job))}">${getOperationalStatus(job)}</span>
         </div>
         <div class="job-tags">
           <span class="pill">${job.jobType}</span>
@@ -579,7 +611,7 @@
         <div class="job-actions">
           <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
           ${!isAccepted(job) ? `<button class="action-btn" data-action="accept-job" data-id="${job.id}">Accept job</button>` : ""}
-          ${["Scheduled", "Not Started"].includes(getLifecycleStage(job)) && !hasStarted(job)
+          ${["Scheduled", "Not Started"].includes(getOperationalStatus(job)) && !hasStarted(job)
             ? `<button class="action-btn" data-action="start-job" data-id="${job.id}">Start job</button>`
             : ""}
           <button class="action-btn" data-action="advance-stage" data-id="${job.id}">Advance stage</button>
@@ -754,9 +786,11 @@
       <article class="info-card">
         <strong>${job.title}</strong><br>
         <span class="muted">${job.market} | ${job.jobType}</span><br>
-        <span class="muted">Current stage: ${getLifecycleStage(job)}</span><br>
+        <span class="muted">Workflow step: ${getLifecycleStage(job)}</span><br>
+        <span class="muted">Live status: ${getOperationalStatus(job)}</span><br>
         <span class="muted">Admin signoff: ${isAdminApproved(job) ? "Complete" : "Pending"}</span><br>
         <span class="muted">Team accepted: ${isAccepted(job) ? "Complete" : "Pending"}</span><br>
+        <span class="muted">Final admin review: ${isAdminReviewed(job) ? "Complete" : "Pending"}</span><br>
         <span class="muted">Started: ${hasStarted(job) ? "Yes" : "No"}</span><br>
         <span class="muted">Blocker: ${job.blockerReason ? `${job.blockerStage || job.lifecycleStage} | ${job.blockerReason}` : "None"}</span>
       </article>
@@ -766,10 +800,14 @@
     fillAssigneeSelect(elements.jobDetailAssigneeSelect, job.assignedTo);
     elements.jobDetailForm.elements.scheduledStartAt.value = String(job.scheduledStartAt || "").slice(0, 16);
     elements.jobDetailForm.elements.priority.value = job.priority || "Medium";
+    elements.jobDetailForm.elements.adminApproved.checked = isAdminApproved(job);
+    elements.jobDetailForm.elements.adminReviewed.checked = isAdminReviewed(job);
     elements.jobDetailStageSelect.disabled = !isAdmin;
     elements.jobDetailAssigneeSelect.disabled = !isAdmin;
     elements.jobDetailForm.elements.scheduledStartAt.disabled = !isAdmin;
     elements.jobDetailForm.elements.priority.disabled = !isAdmin;
+    elements.jobDetailForm.elements.adminApproved.disabled = !isAdmin;
+    elements.jobDetailForm.elements.adminReviewed.disabled = !isAdmin;
     elements.jobDetailUpdates.innerHTML = renderUpdatesPreview(job.id);
     elements.jobDetailDialog.showModal();
   }
@@ -1032,6 +1070,8 @@
         assignedTo,
         scheduledStartAt: form.get("scheduledStartAt"),
         priority: form.get("priority"),
+        adminApproved: form.get("adminApproved") === "on",
+        adminReviewed: form.get("adminReviewed") === "on",
         issue: assignedTo ? `Updated in job workspace. Assigned to ${assignedTo}.` : "Updated in job workspace."
       });
       elements.jobDetailDialog.close();

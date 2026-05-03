@@ -29,7 +29,7 @@ const mimeTypes = {
   ".txt": "text/plain; charset=utf-8"
 };
 
-const lifecycleStages = ["Uploaded", "Assigned", "Scheduled", "Not Started", "In Progress", "Completed", "Admin Reviewed", "Closed"];
+const lifecycleStages = ["Uploaded", "Assigned", "Scheduled", "Completed", "Closed"];
 const maxAttachmentBatchBytes = 30 * 1024 * 1024;
 const allowedAttachmentMimeTypes = new Set([
   "image/jpeg",
@@ -58,7 +58,7 @@ function createToken(prefix = "fs") {
   return `${prefix}_${crypto.randomBytes(18).toString("hex")}`;
 }
 
-function currentLifecycle(job) {
+function getOperationalStatus(job) {
   const rawStage = job.lifecycleStage || "Uploaded";
   if (rawStage === "Accepted") {
     return "Assigned";
@@ -70,6 +70,17 @@ function currentLifecycle(job) {
     return "Not Started";
   }
   return rawStage;
+}
+
+function currentLifecycle(job) {
+  const status = getOperationalStatus(job);
+  if (["Scheduled", "Not Started", "In Progress"].includes(status)) {
+    return "Scheduled";
+  }
+  if (status === "Admin Reviewed") {
+    return "Completed";
+  }
+  return status;
 }
 
 function calculateDurationVariance(plannedHours, actualHours) {
@@ -261,6 +272,7 @@ async function getAppState(forUser) {
   const jobs = forUser.role === "field" ? allJobs.filter((job) => job.assignedTo === forUser.name) : allJobs;
   jobs.forEach((job) => {
     job.displayStage = currentLifecycle(job);
+    job.activityStatus = getOperationalStatus(job);
   });
   const updates = await db.listJobUpdates(jobs.map((job) => job.id));
   const updatesByJob = Object.fromEntries(jobs.map((job) => [job.id, []]));
@@ -445,6 +457,12 @@ const server = http.createServer(async (req, res) => {
         next.plannedHours = body.plannedHours ?? next.plannedHours;
         next.lifecycleStage = body.lifecycleStage ?? next.lifecycleStage;
         next.adminApproved = body.adminApproved ?? next.adminApproved;
+        if (body.adminReviewed === true) {
+          next.adminReviewedAt = next.adminReviewedAt || nowIso();
+        }
+        if (body.adminReviewed === false) {
+          next.adminReviewedAt = null;
+        }
       }
 
       if (body.accepted === true && next.assignedTo) {
@@ -453,6 +471,12 @@ const server = http.createServer(async (req, res) => {
       if (body.started === true) {
         next.startedAt = next.startedAt || nowIso();
         next.lifecycleStage = "In Progress";
+      }
+      if (body.resetStarted === true) {
+        next.startedAt = null;
+        if (next.lifecycleStage === "In Progress") {
+          next.lifecycleStage = "Scheduled";
+        }
       }
 
       next.completion = body.completion ?? next.completion;
@@ -480,6 +504,11 @@ const server = http.createServer(async (req, res) => {
         next.startedAt = nowIso();
       }
 
+      if (next.lifecycleStage === "Closed" && !next.adminReviewedAt) {
+        sendJson(res, 400, { error: "Final admin review is required before closing the job" });
+        return;
+      }
+
       if (next.blockerReason && !next.blockerStage) {
         next.blockerStage = next.lifecycleStage;
       } else if (!next.blockerReason) {
@@ -492,8 +521,8 @@ const server = http.createServer(async (req, res) => {
         next.completion = 100;
       }
 
-      next.intakeStatus = next.lifecycleStage;
-      next.fieldStatus = next.lifecycleStage === "Not Started" ? "Scheduled" : next.lifecycleStage;
+      next.intakeStatus = currentLifecycle(next);
+      next.fieldStatus = getOperationalStatus(next);
 
       await db.updateJob(jobId, next);
       sendJson(res, 200, { ok: true });

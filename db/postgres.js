@@ -56,6 +56,11 @@ async function hydrateLegacyJobData(pool) {
         WHEN started_at IS NOT NULL THEN started_at
         WHEN lifecycle_stage IN ('In Progress', 'Completed', 'Admin Reviewed', 'Closed') THEN created_at
         ELSE NULL
+      END,
+      admin_reviewed_at = CASE
+        WHEN admin_reviewed_at IS NOT NULL THEN admin_reviewed_at
+        WHEN lifecycle_stage IN ('Admin Reviewed', 'Closed') THEN created_at
+        ELSE NULL
       END
   `);
   await pool.query(`
@@ -81,6 +86,7 @@ async function ensureJobColumns(pool) {
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS admin_approved BOOLEAN NOT NULL DEFAULT FALSE");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS admin_reviewed_at TIMESTAMPTZ");
 }
 
 export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso, rootDir }) {
@@ -126,8 +132,8 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         INSERT INTO jobs (
           title, market, requested_by, job_type, priority, intake_status, scheduled_start_at,
           assigned_to, field_status, completion, budget, job_value, labor_cost, planned_hours,
-          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, started_at, issue, quality_score, duration_variance, created_at, created_by_user_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, started_at, admin_reviewed_at, issue, quality_score, duration_variance, created_at, created_by_user_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
       `, [
         title,
         market,
@@ -148,6 +154,7 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         blockerReason ? lifecycleStage : "",
         lifecycleStage,
         lifecycleStage !== "Uploaded",
+        null,
         null,
         null,
         issue,
@@ -266,6 +273,7 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
           admin_approved AS "adminApproved",
           accepted_at AS "acceptedAt",
           started_at AS "startedAt",
+          admin_reviewed_at AS "adminReviewedAt",
           issue,
           quality_score AS "qualityScore",
           duration_variance AS "durationVariance",
@@ -298,6 +306,7 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
           admin_approved AS "adminApproved",
           accepted_at AS "acceptedAt",
           started_at AS "startedAt",
+          admin_reviewed_at AS "adminReviewedAt",
           issue,
           quality_score AS "qualityScore",
           duration_variance AS "durationVariance"
@@ -313,8 +322,8 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         INSERT INTO jobs (
           title, market, requested_by, job_type, priority, intake_status, scheduled_start_at,
           assigned_to, field_status, completion, budget, job_value, labor_cost, planned_hours,
-          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, started_at, issue, quality_score, duration_variance, created_at, created_by_user_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, started_at, admin_reviewed_at, issue, quality_score, duration_variance, created_at, created_by_user_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
         RETURNING id
       `, [
         title,
@@ -338,6 +347,7 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         false,
         null,
         null,
+        null,
         assignedTo
           ? "Job created and assigned. Waiting on crew acknowledgement."
           : "Job uploaded. Review scope, validate materials, and assign before the 24-hour start window.",
@@ -353,9 +363,9 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         UPDATE jobs
         SET intake_status = $1, assigned_to = $2, scheduled_start_at = $3::timestamptz, priority = $4,
             field_status = $5, completion = $6, issue = $7, job_value = $8, labor_cost = $9,
-            planned_hours = $10, actual_hours = $11, blocker_reason = $12, blocker_stage = $13, lifecycle_stage = $14, admin_approved = $15, accepted_at = $16, started_at = $17, duration_variance = $18,
-            budget = $19
-        WHERE id = $20
+            planned_hours = $10, actual_hours = $11, blocker_reason = $12, blocker_stage = $13, lifecycle_stage = $14, admin_approved = $15, accepted_at = $16, started_at = $17, admin_reviewed_at = $18, duration_variance = $19,
+            budget = $20
+        WHERE id = $21
       `, [
         next.intakeStatus,
         next.assignedTo || null,
@@ -374,6 +384,7 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         Boolean(next.adminApproved),
         next.acceptedAt || null,
         next.startedAt || null,
+        next.adminReviewedAt || null,
         Math.round(Number(next.durationVariance || 0)),
         Number(next.jobValue || 0) / 1000000,
         jobId

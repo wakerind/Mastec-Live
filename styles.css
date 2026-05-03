@@ -692,6 +692,12 @@ button:hover {
   font-size: 0.86rem;
 }
 
+.sheet-substatus {
+  margin-top: 8px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
 .sheet-blocker-cell {
   min-width: 190px;
 }
@@ -791,6 +797,17 @@ button:hover {
   display: grid;
   gap: 8px;
   color: var(--muted);
+}
+
+.checkbox-row {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  color: var(--text) !important;
+}
+
+.checkbox-row input {
+  width: auto !important;
 }
 
 .detail-stack {
