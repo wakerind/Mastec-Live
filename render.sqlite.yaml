@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: mastec-live-portal
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /opt/render/project/src/data
+    disk:
+      name: mastec-live-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1

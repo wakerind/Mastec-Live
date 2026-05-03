@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#17342e">
+  <meta name="description" content="FieldSight shared operations portal for admins and field users.">
+  <title>FieldSight | Shared Operations Portal</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">F</div>
+        <div>
+          <p class="eyebrow">Operations portal</p>
+          <h1>FieldSight</h1>
+        </div>
+      </div>
+
+      <nav class="nav" aria-label="Primary">
+        <button class="nav-link active" data-screen="overview">Overview</button>
+        <button class="nav-link admin-only" data-screen="admin">Master Grid</button>
+        <button class="nav-link admin-only" data-screen="assignment">Assignment</button>
+        <button class="nav-link field-only" data-screen="field">Field Portal</button>
+        <button class="nav-link admin-only" data-screen="accounts">Accounts</button>
+        <button class="nav-link admin-only" data-screen="leadership">KPIs</button>
+      </nav>
+
+      <section class="sidebar-panel">
+        <p class="eyebrow">Session</p>
+        <div class="session-card">
+          <strong id="sessionRoleLabel">Guest mode</strong>
+          <p class="muted" id="sessionUserLabel">Sign in or redeem an invite to continue.</p>
+          <button class="secondary-btn compact-btn" id="signOutButton" type="button">Sign out</button>
+        </div>
+      </section>
+
+      <section class="sidebar-panel">
+        <p class="eyebrow">Workflow focus</p>
+        <ul>
+          <li>Uploaded to assigned</li>
+          <li>Field execution and blockers</li>
+          <li>Value, labor, and KPI visibility</li>
+        </ul>
+      </section>
+    </aside>
+
+    <main class="main-content">
+      <section class="login-shell" id="loginShell">
+        <div class="login-card">
+          <p class="eyebrow">Company access</p>
+          <h2>Access the portal</h2>
+
+          <div class="login-grid">
+            <form class="portal-card" id="loginForm">
+              <p class="eyebrow">Login</p>
+              <h3>Account sign in</h3>
+              <label>
+                Email
+                <input name="email" type="email" required>
+              </label>
+              <label>
+                Password
+                <input name="password" type="password" required>
+              </label>
+              <button class="primary-btn" type="submit">Sign in</button>
+              <button class="secondary-btn" type="button" id="demoCreds">Use demo admin login</button>
+              <p class="error-text" id="loginError"></p>
+            </form>
+
+            <form class="portal-card" id="redeemInviteForm">
+              <p class="eyebrow">Invite access</p>
+              <h3>Create invited account</h3>
+              <label>
+                Invite code
+                <input name="token" required>
+              </label>
+              <label>
+                Your name
+                <input name="name" required>
+              </label>
+              <label>
+                Create password
+                <input name="password" type="password" required>
+              </label>
+              <button class="primary-btn" type="submit">Create account</button>
+              <p class="error-text" id="inviteError"></p>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <div id="appContent" class="hidden">
+        <header class="hero">
+          <div>
+            <p class="eyebrow">MasTec workflow visibility</p>
+            <h2>MasTec workflow visibility</h2>
+          </div>
+          <div class="hero-actions">
+            <button class="primary-btn admin-only" id="openJobDialog">Add job</button>
+            <button class="secondary-btn" id="refreshDataButton">Refresh data</button>
+          </div>
+        </header>
+
+        <section class="metric-grid" id="metricGrid"></section>
+
+        <section class="screen active" data-screen-panel="overview">
+          <div class="content-grid overview-grid">
+            <article class="panel panel-lg">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Operations pulse</p>
+                  <h3>Jobs nearing assignment deadline</h3>
+                </div>
+                <span class="badge">24-hour rule enabled</span>
+              </div>
+              <div class="job-list compact-list" id="deadlineList"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Immediate attention</p>
+                  <h3>Alerts</h3>
+                </div>
+              </div>
+              <div class="alerts" id="alertList"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="screen" data-screen-panel="admin">
+          <article class="panel panel-lg full-width-panel">
+            <div class="panel-header stacked-mobile">
+              <div>
+                <p class="eyebrow">Smartsheet-style control</p>
+                <h3>Master job grid</h3>
+              </div>
+              <div class="filters">
+                <select id="intakeStatusFilter">
+                  <option value="all">All lifecycle stages</option>
+                  <option value="Uploaded">Uploaded</option>
+                  <option value="Review">Review</option>
+                  <option value="Approved">Approved</option>
+                  <option value="Scheduled">Scheduled</option>
+                  <option value="Assigned">Assigned</option>
+                  <option value="Acknowledged">Acknowledged</option>
+                  <option value="En Route">En Route</option>
+                  <option value="In Progress">In Progress</option>
+                  <option value="Blocked">Blocked</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Closed">Closed</option>
+                </select>
+                <input id="intakeSearch" type="search" placeholder="Search job, market, assignee, requester">
+              </div>
+            </div>
+            <div class="sheet-wrap" id="masterGrid"></div>
+          </article>
+        </section>
+
+        <section class="screen" data-screen-panel="assignment">
+          <div class="content-grid">
+            <article class="panel panel-lg">
+              <div class="panel-header stacked-mobile">
+                <div>
+                  <p class="eyebrow">Dispatcher view</p>
+                  <h3>Assignment board</h3>
+                </div>
+                <div class="filters">
+                  <select id="assignmentWindowFilter">
+                    <option value="all">All windows</option>
+                    <option value="Open">Open</option>
+                    <option value="Due Soon">Due Soon</option>
+                    <option value="Past Due">Past Due</option>
+                  </select>
+                  <input id="assignmentSearch" type="search" placeholder="Search assignee, market, contractor">
+                </div>
+              </div>
+              <div class="job-list" id="assignmentList"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Capacity</p>
+                  <h3>Available teams</h3>
+                </div>
+              </div>
+              <div class="crew-list" id="crewList"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="screen" data-screen-panel="field">
+          <article class="panel panel-lg full-width-panel">
+            <div class="panel-header stacked-mobile">
+              <div>
+                <p class="eyebrow">Field mobile view</p>
+                <h3>My assigned jobs</h3>
+              </div>
+              <div class="filters">
+                <select id="fieldStatusFilter">
+                  <option value="all">All field stages</option>
+                  <option value="Assigned">Assigned</option>
+                  <option value="Acknowledged">Acknowledged</option>
+                  <option value="En Route">En Route</option>
+                  <option value="In Progress">In Progress</option>
+                  <option value="Blocked">Blocked</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Closed">Closed</option>
+                </select>
+                <input id="fieldSearch" type="search" placeholder="Search location, project, blocker">
+              </div>
+            </div>
+            <div class="job-list" id="fieldList"></div>
+          </article>
+        </section>
+
+        <section class="screen" data-screen-panel="accounts">
+          <div class="content-grid">
+            <article class="panel panel-lg">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Account management</p>
+                  <h3>Users and invite-based access</h3>
+                </div>
+              </div>
+              <form class="inline-form" id="inviteForm">
+                <input name="email" type="email" placeholder="Invite email" required>
+                <select name="role">
+                  <option value="field">Field</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <button class="primary-btn" type="submit">Create invite</button>
+              </form>
+              <div class="split-grid">
+                <div>
+                  <p class="eyebrow">Users</p>
+                  <div class="info-stack" id="usersList"></div>
+                </div>
+                <div>
+                  <p class="eyebrow">Invites</p>
+                  <div class="info-stack" id="invitesList"></div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="screen" data-screen-panel="leadership">
+          <article class="panel panel-lg full-width-panel">
+            <div class="panel-header stacked-mobile">
+              <div>
+                <p class="eyebrow">Leadership review</p>
+                <h3>KPI scorecards</h3>
+              </div>
+              <div class="filters">
+                <select id="kpiGroupFilter">
+                  <option value="teams">Teams</option>
+                  <option value="contractors">Contractors</option>
+                </select>
+              </div>
+            </div>
+            <div class="kpi-list" id="kpiList"></div>
+          </article>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="jobDialog">
+    <form class="dialog-card" id="jobForm">
+      <div class="dialog-header">
+        <h3>Add shared job request</h3>
+        <button class="icon-btn" type="button" id="closeJobDialog" aria-label="Close">x</button>
+      </div>
+      <div class="dialog-grid">
+        <label>Job title<input name="title" required></label>
+        <label>Market<input name="market" required></label>
+        <label>Requested by<input name="requestedBy" required></label>
+        <label>Job type<input name="jobType" required></label>
+        <label>Scheduled start<input name="scheduledStartAt" type="datetime-local" required></label>
+        <label>Assigned team or contractor<input name="assignedTo"></label>
+        <label>Priority
+          <select name="priority">
+            <option>High</option>
+            <option selected>Medium</option>
+            <option>Low</option>
+          </select>
+        </label>
+        <label>Job value ($)<input name="jobValue" type="number" min="0" step="1000" value="250000"></label>
+        <label>Labor cost ($)<input name="laborCost" type="number" min="0" step="1000" value="140000"></label>
+        <label>Planned hours<input name="plannedHours" type="number" min="0" step="1" value="40"></label>
+        <label class="span-2">Known blocker<input name="blockerReason" placeholder="Optional permit, access, staffing, or material blocker"></label>
+      </div>
+      <menu class="dialog-actions">
+        <button class="secondary-btn" type="button" id="cancelJobDialog">Cancel</button>
+        <button class="primary-btn" type="submit">Save job</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
