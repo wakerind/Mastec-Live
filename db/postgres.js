@@ -70,6 +70,19 @@ async function hydrateLegacyJobData(pool) {
   `);
 }
 
+async function ensureJobColumns(pool) {
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_value NUMERIC(12, 2) NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS labor_cost NUMERIC(12, 2) NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS planned_hours NUMERIC(10, 2) NOT NULL DEFAULT 8");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS actual_hours NUMERIC(10, 2) NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS blocker_reason TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS blocker_stage TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS lifecycle_stage TEXT NOT NULL DEFAULT 'Uploaded'");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS admin_approved BOOLEAN NOT NULL DEFAULT FALSE");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ");
+}
+
 export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso, rootDir }) {
   const { Pool } = await import("pg");
   const schemaSql = fs.readFileSync(path.join(rootDir, "db", "schema.postgres.sql"), "utf8");
@@ -79,6 +92,7 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
   });
 
   await pool.query(schemaSql);
+  await ensureJobColumns(pool);
   await hydrateLegacyJobData(pool);
 
   for (const seedUser of seedUsers) {
