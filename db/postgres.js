@@ -37,12 +37,14 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
   await pool.query(schemaSql);
   await hydrateLegacyJobData(pool);
 
-  const adminExists = await pool.query("SELECT id FROM users WHERE email = $1", [seedUsers[0].email]);
-  if (!adminExists.rowCount) {
-    await pool.query(`
-      INSERT INTO users (email, password_hash, name, role, status, created_at)
-      VALUES ($1, $2, $3, $4, 'active', $5)
-    `, [seedUsers[0].email, hashPassword(seedUsers[0].password), seedUsers[0].name, seedUsers[0].role, nowIso()]);
+  for (const seedUser of seedUsers) {
+    const userExists = await pool.query("SELECT id FROM users WHERE email = $1", [seedUser.email]);
+    if (!userExists.rowCount) {
+      await pool.query(`
+        INSERT INTO users (email, password_hash, name, role, status, created_at)
+        VALUES ($1, $2, $3, $4, 'active', $5)
+      `, [seedUser.email, hashPassword(seedUser.password), seedUser.name, seedUser.role, nowIso()]);
+    }
   }
 
   const crewCount = Number((await pool.query("SELECT COUNT(*)::int AS count FROM crews")).rows[0].count);

@@ -4,6 +4,12 @@ export const seedUsers = [
     password: "Admin123!",
     name: "FieldSight Admin",
     role: "admin"
+  },
+  {
+    email: "crew1@fieldsight.local",
+    password: "Field123!",
+    name: "MasTec East Fiber Crew",
+    role: "field"
   }
 ];
 

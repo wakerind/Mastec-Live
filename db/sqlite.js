@@ -137,13 +137,16 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN blocker_reason TEXT NOT NULL DEFAULT ''");
   hydrateLegacyJobData(db);
 
-  const adminExists = db.prepare("SELECT id FROM users WHERE email = ?").get(seedUsers[0].email);
-  if (!adminExists) {
-    db.prepare(`
-      INSERT INTO users (email, password_hash, name, role, status, created_at)
-      VALUES (?, ?, ?, ?, 'active', ?)
-    `).run(seedUsers[0].email, hashPassword(seedUsers[0].password), seedUsers[0].name, seedUsers[0].role, nowIso());
-  }
+  const insertUser = db.prepare(`
+    INSERT INTO users (email, password_hash, name, role, status, created_at)
+    VALUES (?, ?, ?, ?, 'active', ?)
+  `);
+  seedUsers.forEach((seedUser) => {
+    const userExists = db.prepare("SELECT id FROM users WHERE email = ?").get(seedUser.email);
+    if (!userExists) {
+      insertUser.run(seedUser.email, hashPassword(seedUser.password), seedUser.name, seedUser.role, nowIso());
+    }
+  });
 
   const crewCount = db.prepare("SELECT COUNT(*) AS count FROM crews").get().count;
   if (!crewCount) {
