@@ -408,6 +408,9 @@
   function buildCycleExportRows({ fromDate = "", toDate = "" } = {}) {
     const stageOrder = ["Uploaded", "Assigned", "Scheduled", "Completed", "Closed"];
     return appState.jobs.flatMap((job) => {
+      if ((fromDate || toDate) && !isWithinDateRange(job.scheduledStartAt, fromDate, toDate)) {
+        return [];
+      }
       const updates = getJobUpdates(job.id);
       const latestUpdate = getLatestUpdate(job.id);
       const sourceEvents = getJobStageEvents(job.id).length ? getJobStageEvents(job.id) : fallbackStageEntries(job);
@@ -421,7 +424,7 @@
       let previousEvent = null;
       return stageOrder.flatMap((stage) => {
         const event = latestEventByStage.get(stage);
-        if (!event || !isWithinDateRange(event.enteredAt, fromDate, toDate)) {
+        if (!event) {
           return [];
         }
         const row = {
@@ -1136,7 +1139,7 @@
     const cycleRows = (appState.kpis.cycleRows || []).filter((row) => {
       const haystack = `${row.title} ${row.assignedTo} ${row.market}`.toLowerCase();
       const matchesDate = fromDate || toDate
-        ? isWithinDateRange(row.latestStageAt, fromDate, toDate)
+        ? isWithinDateRange(row.scheduledStartAt, fromDate, toDate)
         : matchesTimeframe(row.latestStageAt, timeframe);
       return matchesDate && (!query || haystack.includes(query));
     });

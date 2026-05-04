@@ -389,6 +389,17 @@ button:hover {
   flex-wrap: wrap;
 }
 
+.kpi-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(140px, 1fr));
+  gap: 10px 12px;
+  width: min(420px, 100%);
+}
+
+.kpi-filters > * {
+  min-width: 0;
+}
+
 .filters input,
 .filters select,
 .dialog-card input,
@@ -1128,5 +1139,10 @@ dialog::backdrop {
 
   .nav {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .kpi-filters {
+    width: 100%;
+    grid-template-columns: 1fr;
   }
 }
