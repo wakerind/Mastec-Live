@@ -48,6 +48,7 @@
     navLinks: document.querySelectorAll(".nav-link"),
     screens: document.querySelectorAll(".screen"),
     openJobDialog: document.getElementById("openJobDialog"),
+    exportCsvButton: document.getElementById("exportCsvButton"),
     refreshDataButton: document.getElementById("refreshDataButton"),
     jobDialog: document.getElementById("jobDialog"),
     jobForm: document.getElementById("jobForm"),
@@ -333,6 +334,139 @@
     }
     const note = String(update.note || "").trim();
     return note.length > 72 ? `${note.slice(0, 69)}...` : note || "Update logged";
+  }
+
+  function csvEscape(value) {
+    const stringValue = value === null || value === undefined ? "" : String(value);
+    if (/[",\n]/.test(stringValue)) {
+      return `"${stringValue.replace(/"/g, "\"\"")}"`;
+    }
+    return stringValue;
+  }
+
+  function formatDurationHours(fromValue, toValue) {
+    if (!fromValue || !toValue) {
+      return "";
+    }
+    const from = new Date(fromValue).getTime();
+    const to = new Date(toValue).getTime();
+    if (Number.isNaN(from) || Number.isNaN(to) || to < from) {
+      return "";
+    }
+    return ((to - from) / (1000 * 60 * 60)).toFixed(2);
+  }
+
+  function buildCycleExportRows() {
+    const stageOrder = ["Uploaded", "Assigned", "Scheduled", "Completed", "Closed"];
+    return appState.jobs.flatMap((job) => {
+      const updates = getJobUpdates(job.id);
+      const latestUpdate = getLatestUpdate(job.id);
+      const events = [...getJobStageEvents(job.id)]
+        .filter((event) => stageOrder.includes(event.toStage))
+        .sort((left, right) => new Date(left.changedAt) - new Date(right.changedAt));
+      const latestEventByStage = new Map();
+      events.forEach((event) => {
+        latestEventByStage.set(event.toStage, event);
+      });
+      let previousEvent = null;
+      return stageOrder.flatMap((stage) => {
+        const event = latestEventByStage.get(stage);
+        if (!event) {
+          return [];
+        }
+        const row = {
+          jobId: job.id,
+          jobTitle: job.title,
+          market: job.market,
+          requestedBy: job.requestedBy,
+          jobType: job.jobType,
+          priority: job.priority,
+          teamName: job.assignedTo || "",
+          currentCycle: getLifecycleStage(job),
+          currentStatus: getOperationalStatus(job),
+          lastProcessedCycle: stage,
+          cycleTimestamp: event.changedAt,
+          previousCycle: previousEvent?.toStage || "",
+          previousCycleTimestamp: previousEvent?.changedAt || "",
+          durationHours: formatDurationHours(previousEvent?.changedAt, event.changedAt),
+          scheduledStartAt: job.scheduledStartAt,
+          jobValue: Number(job.jobValue || 0),
+          laborCost: Number(job.laborCost || 0),
+          plannedHours: Number(job.plannedHours || 0),
+          actualHours: Number(job.actualHours || 0),
+          completionPercent: Number(job.completion || 0),
+          blockerStage: job.blockerStage || "",
+          blockerReason: job.blockerReason || "",
+          rejectionReason: job.rejectionReason || "",
+          adminApprovedAt: job.adminApprovedAt || "",
+          acceptedAt: job.acceptedAt || "",
+          startedAt: job.startedAt || "",
+          completedAt: job.completedAt || "",
+          adminReviewedAt: job.adminReviewedAt || "",
+          closedAt: job.closedAt || "",
+          lastUpdateAt: latestUpdate?.createdAt || "",
+          lastUpdateNote: summarizeUpdate(latestUpdate),
+          totalUpdates: updates.length
+        };
+        previousEvent = event;
+        return [row];
+      });
+    });
+  }
+
+  function downloadCycleExport() {
+    const rows = buildCycleExportRows();
+    if (!rows.length) {
+      window.alert("No cycle data is available to export yet.");
+      return;
+    }
+    const columns = [
+      "jobId",
+      "jobTitle",
+      "market",
+      "requestedBy",
+      "jobType",
+      "priority",
+      "teamName",
+      "currentCycle",
+      "currentStatus",
+      "lastProcessedCycle",
+      "cycleTimestamp",
+      "previousCycle",
+      "previousCycleTimestamp",
+      "durationHours",
+      "scheduledStartAt",
+      "jobValue",
+      "laborCost",
+      "plannedHours",
+      "actualHours",
+      "completionPercent",
+      "blockerStage",
+      "blockerReason",
+      "rejectionReason",
+      "adminApprovedAt",
+      "acceptedAt",
+      "startedAt",
+      "completedAt",
+      "adminReviewedAt",
+      "closedAt",
+      "lastUpdateAt",
+      "lastUpdateNote",
+      "totalUpdates"
+    ];
+    const csv = [
+      columns.join(","),
+      ...rows.map((row) => columns.map((column) => csvEscape(row[column])).join(","))
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `fieldsight-cycle-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   function compareValues(left, right, direction) {
@@ -1456,6 +1590,7 @@
     ].forEach((control) => control.addEventListener("input", renderApp));
 
     elements.openJobDialog.addEventListener("click", () => elements.jobDialog.showModal());
+    elements.exportCsvButton.addEventListener("click", downloadCycleExport);
     elements.refreshDataButton.addEventListener("click", refreshApp);
     elements.closeJobDialog.addEventListener("click", () => elements.jobDialog.close());
     elements.cancelJobDialog.addEventListener("click", () => elements.jobDialog.close());
