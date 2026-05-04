@@ -478,6 +478,10 @@ const server = http.createServer(async (req, res) => {
         if (body.adminReviewed === false) {
           next.adminReviewedAt = null;
         }
+        if (body.adminReviewed === true && ["Completed", "Admin Reviewed"].includes(next.lifecycleStage)) {
+          next.lifecycleStage = "Closed";
+          next.issue = "Final admin review completed. Job closed.";
+        }
 
         if (next.assignedTo && next.assignedTo !== previousAssignedTo) {
           if (next.adminApproved) {

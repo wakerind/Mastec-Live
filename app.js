@@ -1080,8 +1080,9 @@
       await updateJob(jobId, {
         adminReviewed: true,
         lifecycleStage: "Completed",
-        issue: "Admin review completed."
+        issue: "Final admin review completed. Job closed."
       });
+      window.alert("Final admin review completed. Job was closed.");
       return;
     }
 
