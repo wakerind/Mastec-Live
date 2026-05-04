@@ -7,6 +7,7 @@
 
   let authToken = localStorage.getItem(authStorageKey) || "";
   let currentScreen = "overview";
+  let intakeSort = { key: "scheduledStartAt", direction: "asc" };
   let appState = {
     session: null,
     jobs: [],
@@ -234,6 +235,75 @@
     return appState.updatesByJob?.[jobId] || [];
   }
 
+  function getLatestUpdate(jobId) {
+    return getJobUpdates(jobId)[0] || null;
+  }
+
+  function summarizeUpdate(update) {
+    if (!update) {
+      return "No updates yet";
+    }
+    const note = String(update.note || "").trim();
+    return note.length > 72 ? `${note.slice(0, 69)}...` : note || "Update logged";
+  }
+
+  function compareValues(left, right, direction) {
+    if (left === right) {
+      return 0;
+    }
+    if (left === null || left === undefined || left === "") {
+      return direction === "asc" ? 1 : -1;
+    }
+    if (right === null || right === undefined || right === "") {
+      return direction === "asc" ? -1 : 1;
+    }
+    if (typeof left === "number" && typeof right === "number") {
+      return direction === "asc" ? left - right : right - left;
+    }
+    return direction === "asc"
+      ? String(left).localeCompare(String(right))
+      : String(right).localeCompare(String(left));
+  }
+
+  function sortJobs(items) {
+    const { key, direction } = intakeSort;
+    return [...items].sort((left, right) => {
+      const leftUpdate = getLatestUpdate(left.id);
+      const rightUpdate = getLatestUpdate(right.id);
+      const valueMap = {
+        title: [left.title, right.title],
+        market: [left.market, right.market],
+        jobType: [left.jobType, right.jobType],
+        lifecycle: [getLifecycleStage(left), getLifecycleStage(right)],
+        lastUpdatedAt: [leftUpdate?.createdAt ? new Date(leftUpdate.createdAt).getTime() : 0, rightUpdate?.createdAt ? new Date(rightUpdate.createdAt).getTime() : 0],
+        lastUpdateNote: [summarizeUpdate(leftUpdate), summarizeUpdate(rightUpdate)],
+        assignedTo: [left.assignedTo || "", right.assignedTo || ""],
+        scheduledStartAt: [new Date(left.scheduledStartAt).getTime(), new Date(right.scheduledStartAt).getTime()],
+        jobValue: [Number(left.jobValue || 0), Number(right.jobValue || 0)],
+        laborCost: [Number(left.laborCost || 0), Number(right.laborCost || 0)],
+        plannedHours: [Number(left.plannedHours || 0), Number(right.plannedHours || 0)],
+        actualHours: [Number(left.actualHours || 0), Number(right.actualHours || 0)],
+        blockerReason: [left.blockerReason || "", right.blockerReason || ""]
+      };
+      const [leftValue, rightValue] = valueMap[key] || valueMap.scheduledStartAt;
+      return compareValues(leftValue, rightValue, direction);
+    });
+  }
+
+  function toggleSort(key) {
+    intakeSort = {
+      key,
+      direction: intakeSort.key === key && intakeSort.direction === "asc" ? "desc" : "asc"
+    };
+    renderApp();
+  }
+
+  function renderSortableHeader(label, key) {
+    const isActive = intakeSort.key === key;
+    const marker = isActive ? (intakeSort.direction === "asc" ? "↑" : "↓") : "";
+    return `<button class="sort-btn ${isActive ? "active" : ""}" type="button" data-sort-key="${key}">${label}${marker ? ` <span>${marker}</span>` : ""}</button>`;
+  }
+
   function renderUpdatesPreview(jobId) {
     const updates = getJobUpdates(jobId).slice(0, 2);
     if (!updates.length) {
@@ -437,75 +507,60 @@
     }).join("") : emptyState("No active alerts.");
   }
 
-  function buildGridRowActions(job) {
-    const actions = [];
-    const lifecycle = getLifecycleStage(job);
-
-    actions.push(`<button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>`);
-    if (!["Closed"].includes(lifecycle)) {
-      actions.push(`<button class="action-btn" data-action="advance-stage" data-id="${job.id}">Advance</button>`);
-    }
-    if (appState.session?.role === "admin" && !isAdminApproved(job)) {
-      actions.push(`<button class="action-btn" data-action="admin-signoff" data-id="${job.id}">Admin signoff</button>`);
-    }
-    if (!job.assignedTo) {
-      actions.push(`<button class="action-btn" data-action="assign-fast" data-id="${job.id}">Quick assign</button>`);
-      actions.push(`<button class="action-btn" data-action="assign-job" data-id="${job.id}">Choose assignee</button>`);
-    }
-    if (appState.session?.role === "field" && job.assignedTo === appState.session.name && !isAccepted(job)) {
-      actions.push(`<button class="action-btn" data-action="accept-job" data-id="${job.id}">Accept job</button>`);
-    }
-    if (appState.session?.role === "field" && ["Scheduled", "Not Started"].includes(getOperationalStatus(job)) && !hasStarted(job)) {
-      actions.push(`<button class="action-btn" data-action="start-job" data-id="${job.id}">Start job</button>`);
-    }
-    if (job.blockerReason) {
-      actions.push(`<button class="action-btn" data-action="clear-blocker" data-id="${job.id}">Clear blocker</button>`);
-    } else {
-      actions.push(`<button class="action-btn" data-action="add-blocker" data-id="${job.id}">Add blocker</button>`);
-    }
-    actions.push(`<button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>`);
-
-    return actions.join("");
-  }
-
   function renderMasterGrid(filters) {
-    const items = appState.jobs.filter((job) => {
+    const filteredItems = appState.jobs.filter((job) => {
       const lifecycle = getLifecycleStage(job);
       const statusMatch = filters.status === "all" || lifecycle === filters.status;
       const haystack = `${job.title} ${job.requestedBy} ${job.market} ${job.jobType} ${job.assignedTo} ${job.blockerReason}`.toLowerCase();
       return statusMatch && (!filters.query || haystack.includes(filters.query));
     });
+    const items = sortJobs(filteredItems);
 
     elements.masterGrid.innerHTML = items.length ? `
       <table class="sheet-table">
         <thead>
           <tr>
-            <th>Job</th>
-            <th>Market</th>
-            <th>Type</th>
-            <th>Lifecycle</th>
-            <th>Assigned</th>
-            <th>Start</th>
-            <th>Value</th>
-            <th>Labor</th>
-            <th>Planned</th>
-            <th>Actual</th>
-            <th>Blocker</th>
-            <th>Actions</th>
+            <th>${renderSortableHeader("Job", "title")}</th>
+            <th>${renderSortableHeader("Market", "market")}</th>
+            <th>${renderSortableHeader("Type", "jobType")}</th>
+            <th>${renderSortableHeader("Lifecycle", "lifecycle")}</th>
+            <th>${renderSortableHeader("Last Update", "lastUpdatedAt")}</th>
+            <th>${renderSortableHeader("Assigned", "assignedTo")}</th>
+            <th>${renderSortableHeader("Start", "scheduledStartAt")}</th>
+            <th>${renderSortableHeader("Value", "jobValue")}</th>
+            <th>${renderSortableHeader("Labor", "laborCost")}</th>
+            <th>${renderSortableHeader("Planned", "plannedHours")}</th>
+            <th>${renderSortableHeader("Actual", "actualHours")}</th>
+            <th>${renderSortableHeader("Blocker", "blockerReason")}</th>
           </tr>
         </thead>
         <tbody>
-          ${items.map((job) => `
+          ${items.map((job) => {
+            const latestUpdate = getLatestUpdate(job.id);
+            const lifecycle = getLifecycleStage(job);
+            return `
             <tr>
               <td class="sheet-primary-cell">
                 <strong>${job.title}</strong>
                 <span>${job.requestedBy}</span>
+                <button class="sheet-inline-action" data-action="open-job" data-id="${job.id}">Open job</button>
               </td>
-              <td>${job.market}</td>
-              <td>${job.jobType}</td>
+              <td>
+                <div>${job.market}</div>
+                ${!["Closed"].includes(lifecycle) ? `<button class="sheet-inline-action" data-action="advance-stage" data-id="${job.id}">Advance</button>` : ""}
+              </td>
+              <td>
+                <div>${job.jobType}</div>
+                <button class="sheet-inline-action" data-action="${job.blockerReason ? "clear-blocker" : "add-blocker"}" data-id="${job.id}">${job.blockerReason ? "Clear blocker" : "Add blocker"}</button>
+              </td>
               <td>
                 <span class="sheet-stage ${getStatusClass(getLifecycleStage(job))}">${getLifecycleStage(job)}</span>
                 <div class="sheet-substatus">${getOperationalStatus(job)}</div>
+                <button class="sheet-inline-action" data-action="log-update" data-id="${job.id}">Add update</button>
+              </td>
+              <td class="sheet-update-cell">
+                <div>${latestUpdate ? formatDateTime(latestUpdate.createdAt) : "No updates yet"}</div>
+                <span>${summarizeUpdate(latestUpdate)}</span>
               </td>
               <td>${job.assignedTo || "Unassigned"}</td>
               <td>${formatDateTime(job.scheduledStartAt)}</td>
@@ -514,14 +569,8 @@
               <td>${Number(job.plannedHours || 0)}h</td>
               <td>${Number(job.actualHours || 0)}h</td>
               <td class="sheet-blocker-cell">${job.blockerReason ? `${job.blockerStage || getLifecycleStage(job)} | ${job.blockerReason}` : "<span class=\"muted\">Clear</span>"}</td>
-              <td>
-                <div class="sheet-requirements">${buildRequirementBadges(job)}</div>
-                <div class="sheet-actions">
-                  ${buildGridRowActions(job)}
-                </div>
-              </td>
             </tr>
-          `).join("")}
+          `;}).join("")}
         </tbody>
       </table>
     ` : emptyState("No jobs match the current filters.");
@@ -552,22 +601,10 @@
                   <div class="board-card-top">
                     <div>
                       <h4>${job.title}</h4>
-                      <p class="board-card-team">${job.assignedTo || "Unassigned"}</p>
                     </div>
-                    <span class="window-pill ${window.className}">${window.label}</span>
                   </div>
-                  <div class="board-card-meta">
-                    <span class="pill">${job.market}</span>
-                    <span class="pill">${getOperationalStatus(job)}</span>
-                    ${job.blockerReason ? `<span class="pill blocker-pill">Blocked</span>` : ""}
-                  </div>
-                  <div class="board-card-requirements">
-                    ${buildRequirementBadges(job)}
-                  </div>
-                  ${job.blockerReason ? `<p class="muted board-card-note">${job.blockerStage || stage} | ${job.blockerReason}</p>` : ""}
                   <div class="job-actions compact-actions">
                     <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
-                    ${!job.assignedTo ? `<button class="action-btn" data-action="assign-job" data-id="${job.id}">Assign</button>` : ""}
                   </div>
                 </article>
               `;
@@ -1119,6 +1156,11 @@
     });
 
     document.body.addEventListener("click", (event) => {
+      const sortButton = event.target.closest("[data-sort-key]");
+      if (sortButton) {
+        toggleSort(sortButton.dataset.sortKey);
+        return;
+      }
       handleActionClick(event).catch((error) => {
         window.alert(error.message);
       });
