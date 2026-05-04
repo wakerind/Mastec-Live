@@ -50,6 +50,11 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function isScheduledPastDue(value) {
+  const timestamp = new Date(value).getTime();
+  return !Number.isNaN(timestamp) && timestamp <= Date.now();
+}
+
 function hashPassword(password) {
   return crypto.createHash("sha256").update(password).digest("hex");
 }
@@ -467,6 +472,14 @@ const server = http.createServer(async (req, res) => {
 
       if (body.accepted === true && next.assignedTo) {
         next.acceptedAt = next.acceptedAt || nowIso();
+        if (next.scheduledStartAt) {
+          if (isScheduledPastDue(next.scheduledStartAt)) {
+            next.startedAt = next.startedAt || nowIso();
+            next.lifecycleStage = "In Progress";
+          } else if (next.lifecycleStage === "Assigned") {
+            next.lifecycleStage = "Scheduled";
+          }
+        }
       }
       if (body.started === true) {
         next.startedAt = next.startedAt || nowIso();
@@ -502,6 +515,10 @@ const server = http.createServer(async (req, res) => {
 
       if (["In Progress", "Completed", "Admin Reviewed", "Closed"].includes(next.lifecycleStage) && !next.startedAt) {
         next.startedAt = nowIso();
+      }
+
+      if (next.lifecycleStage === "Scheduled" && next.startedAt) {
+        next.lifecycleStage = "In Progress";
       }
 
       if (next.lifecycleStage === "Closed" && !next.adminReviewedAt) {
