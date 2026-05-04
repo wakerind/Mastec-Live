@@ -12,7 +12,7 @@ This repo is now a lightweight Node.js web app with:
 ## Local run
 
 ```powershell
-cd "C:\Users\yguev\OneDrive\Projects\MasTec Tracking"
+cd "C:\Users\yguev\OneDrive\Projects\Mastec Live"
 node server.js
 ```
 

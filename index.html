@@ -21,10 +21,11 @@
       </div>
 
       <nav class="nav" aria-label="Primary">
-        <button class="nav-link active" data-screen="overview">Overview</button>
+        <button class="nav-link active" data-screen="overview">Home Dashboard</button>
         <button class="nav-link" data-screen="admin">Master Grid</button>
         <button class="nav-link" data-screen="assignment">Assignment</button>
         <button class="nav-link field-only" data-screen="field">Field Portal</button>
+        <button class="nav-link" data-screen="history">History</button>
         <button class="nav-link admin-only" data-screen="accounts">Accounts</button>
         <button class="nav-link admin-only" data-screen="leadership">KPIs</button>
       </nav>
@@ -105,6 +106,38 @@
         <section class="metric-grid" id="metricGrid"></section>
 
         <section class="screen active" data-screen-panel="overview">
+          <div class="dashboard-grid">
+            <article class="panel dashboard-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Home dashboard</p>
+                  <h3>Dispatcher shortcuts</h3>
+                </div>
+              </div>
+              <div class="shortcut-grid" id="dashboardShortcuts"></div>
+            </article>
+
+            <article class="panel dashboard-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Closed work</p>
+                  <h3>Recent completions</h3>
+                </div>
+              </div>
+              <div class="job-list compact-list" id="historyPreview"></div>
+            </article>
+
+            <article class="panel dashboard-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Closeout trends</p>
+                  <h3>Work done and codes used</h3>
+                </div>
+              </div>
+              <div class="dashboard-breakdown" id="dashboardBreakdown"></div>
+            </article>
+          </div>
+
           <div class="content-grid overview-grid">
             <article class="panel panel-lg">
               <div class="panel-header">
@@ -142,6 +175,7 @@
                   <option value="Uploaded">Uploaded</option>
                   <option value="Assigned">Assigned</option>
                   <option value="Scheduled">Scheduled</option>
+                  <option value="In Progress">In Progress</option>
                   <option value="Completed">Completed</option>
                   <option value="Closed">Closed</option>
                 </select>
@@ -207,6 +241,24 @@
               </div>
             </div>
             <div class="job-list" id="fieldList"></div>
+          </article>
+        </section>
+
+        <section class="screen" data-screen-panel="history">
+          <article class="panel panel-lg full-width-panel">
+            <div class="panel-header stacked-mobile">
+              <div>
+                <p class="eyebrow">Closed jobs</p>
+                <h3>History and closeout archive</h3>
+              </div>
+              <div class="filters">
+                <select id="historyTypeFilter">
+                  <option value="all">All job types</option>
+                </select>
+                <input id="historySearch" type="search" placeholder="Search closed jobs, address, dispatcher">
+              </div>
+            </div>
+            <div class="job-list" id="historyList"></div>
           </article>
         </section>
 
@@ -278,9 +330,26 @@
         <label>Job title<input name="title" required></label>
         <label>Market<input name="market" required></label>
         <label>Requested by<input name="requestedBy" required></label>
-        <label>Job type<input name="jobType" required></label>
+        <label>Job address<input name="jobAddress" placeholder="123 Main St, Miami, FL 33177" required></label>
+        <label>Job type
+          <select name="jobType" required>
+            <option>Fiber Splice</option>
+            <option>Fiber Repair</option>
+            <option>New Install</option>
+            <option>Troubleshoot</option>
+            <option>Locate</option>
+            <option>Maintenance</option>
+            <option>Inspection</option>
+            <option>Transport</option>
+            <option>Power Upgrade</option>
+            <option>Small Cell</option>
+            <option>Tower Maintenance</option>
+          </select>
+        </label>
         <label>Scheduled start<input name="scheduledStartAt" type="datetime-local" required></label>
         <label>Assigned team or contractor<input name="assignedTo"></label>
+        <label>Admin who assigned<input name="dispatcherName" required></label>
+        <label>Dispatcher phone<input name="dispatcherPhone" type="tel" placeholder="555-555-5555"></label>
         <label>Priority
           <select name="priority">
             <option>High</option>
@@ -325,6 +394,43 @@
       </div>
       <input type="hidden" name="jobId">
       <div class="dialog-grid">
+        <label>Update type
+          <select name="updateType">
+            <option value="Work performed">Work performed</option>
+            <option value="Crew started job">Crew started job</option>
+            <option value="Progress update">Progress update</option>
+            <option value="Material update">Material update</option>
+            <option value="Safety update">Safety update</option>
+            <option value="Blocker">Blocker</option>
+            <option value="Closeout">Closeout</option>
+          </select>
+        </label>
+        <label>Work done
+          <select name="workDone">
+            <option value="">Select work done</option>
+            <option value="Splice completed">Splice completed</option>
+            <option value="Fiber tested">Fiber tested</option>
+            <option value="Drop installed">Drop installed</option>
+            <option value="Repair completed">Repair completed</option>
+            <option value="Locate performed">Locate performed</option>
+            <option value="Materials used">Materials used</option>
+            <option value="Inspection completed">Inspection completed</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+        <label class="span-2">Codes used
+          <select name="codesUsed" multiple size="7">
+            <option value="SPL - Splice">SPL - Splice</option>
+            <option value="TST - Tested">TST - Tested</option>
+            <option value="RPR - Repair">RPR - Repair</option>
+            <option value="NEW - New Install">NEW - New Install</option>
+            <option value="TRC - Troubleshoot">TRC - Troubleshoot</option>
+            <option value="LOC - Locate">LOC - Locate</option>
+            <option value="MTR - Material Used">MTR - Material Used</option>
+            <option value="INS - Inspection">INS - Inspection</option>
+            <option value="OTH - Other">OTH - Other</option>
+          </select>
+        </label>
         <label class="span-2">Update note
           <input name="note" placeholder="What changed on this job?" required>
         </label>
@@ -369,6 +475,7 @@
         <div class="detail-section">
           <p class="eyebrow">Job details</p>
           <div class="detail-stack" id="jobDetailSummary"></div>
+          <div class="detail-stack" id="jobDetailQuickLinks"></div>
         </div>
         <div class="detail-section" id="jobWorkflowControls">
           <p class="eyebrow">Workflow controls</p>

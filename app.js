@@ -1,7 +1,7 @@
 (function () {
   const authStorageKey = "fieldsight-auth-token";
-  const visibleLifecycleStages = ["Uploaded", "Assigned", "Scheduled", "Completed", "Closed"];
-  const editableLifecycleStages = ["Uploaded", "Assigned", "Scheduled", "Completed", "Closed"];
+  const visibleLifecycleStages = ["Uploaded", "Assigned", "Scheduled", "In Progress", "Completed", "Closed"];
+  const editableLifecycleStages = ["Uploaded", "Assigned", "Scheduled", "In Progress", "Completed", "Closed"];
   const maxAttachmentBatchBytes = 30 * 1024 * 1024;
   const dragMimeType = "application/x-fieldsight-job-id";
 
@@ -28,10 +28,14 @@
     metricGrid: document.getElementById("metricGrid"),
     deadlineList: document.getElementById("deadlineList"),
     alertList: document.getElementById("alertList"),
+    dashboardShortcuts: document.getElementById("dashboardShortcuts"),
+    historyPreview: document.getElementById("historyPreview"),
+    dashboardBreakdown: document.getElementById("dashboardBreakdown"),
     masterGrid: document.getElementById("masterGrid"),
     stageBoard: document.getElementById("stageBoard"),
     crewList: document.getElementById("crewList"),
     fieldList: document.getElementById("fieldList"),
+    historyList: document.getElementById("historyList"),
     kpiList: document.getElementById("kpiList"),
     usersList: document.getElementById("usersList"),
     invitesList: document.getElementById("invitesList"),
@@ -42,6 +46,8 @@
     assignmentSearch: document.getElementById("assignmentSearch"),
     fieldStatusFilter: document.getElementById("fieldStatusFilter"),
     fieldSearch: document.getElementById("fieldSearch"),
+    historyTypeFilter: document.getElementById("historyTypeFilter"),
+    historySearch: document.getElementById("historySearch"),
     kpiGroupFilter: document.getElementById("kpiGroupFilter"),
     kpiEntityFilter: document.getElementById("kpiEntityFilter"),
     kpiDateFrom: document.getElementById("kpiDateFrom"),
@@ -75,6 +81,7 @@
     closeJobDetailDialog: document.getElementById("closeJobDetailDialog"),
     cancelJobDetailDialog: document.getElementById("cancelJobDetailDialog"),
     jobDetailSummary: document.getElementById("jobDetailSummary"),
+    jobDetailQuickLinks: document.getElementById("jobDetailQuickLinks"),
     jobDetailUpdates: document.getElementById("jobDetailUpdates"),
     jobDetailStageSelect: document.getElementById("jobDetailStageSelect"),
     jobDetailAssigneeSelect: document.getElementById("jobDetailAssigneeSelect"),
@@ -112,6 +119,19 @@
       currency: "USD",
       maximumFractionDigits: 0
     }).format(Number(value || 0));
+  }
+
+  function formatPhone(value) {
+    const digits = String(value || "").replace(/\D+/g, "");
+    if (digits.length === 10) {
+      return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+    }
+    return value || "Phone not listed";
+  }
+
+  function getMapsUrl(job) {
+    const query = encodeURIComponent([job.jobAddress, job.market].filter(Boolean).join(", "));
+    return query ? `https://www.google.com/maps/search/?api=1&query=${query}` : "";
   }
 
   function hoursUntil(value) {
@@ -157,8 +177,11 @@
     if (status === "Rejected") {
       return "Uploaded";
     }
-    if (["Scheduled", "Not Started", "In Progress"].includes(status)) {
+    if (["Scheduled", "Not Started"].includes(status)) {
       return "Scheduled";
+    }
+    if (status === "In Progress") {
+      return "In Progress";
     }
     if (status === "Admin Reviewed") {
       return "Completed";
@@ -195,8 +218,8 @@
       return [];
     }
     return appState.session.role === "field"
-      ? ["overview", "admin", "assignment", "field"]
-      : ["overview", "admin", "assignment", "accounts", "leadership"];
+      ? ["overview", "admin", "assignment", "field", "history"]
+      : ["overview", "admin", "assignment", "history", "accounts", "leadership"];
   }
 
   function getSafeScreen(screenName) {
@@ -223,6 +246,9 @@
     if (stage === "Scheduled") {
       payload.resetStarted = true;
     }
+    if (stage === "In Progress") {
+      payload.started = true;
+    }
     if (["Completed", "Closed"].includes(stage) && !hasStarted(job)) {
       payload.started = true;
     }
@@ -235,7 +261,15 @@
   function canFieldComplete(job) {
     return appState.session?.role === "field"
       && isAccepted(job)
-      && ["Scheduled", "Not Started", "In Progress"].includes(getOperationalStatus(job));
+      && hasStarted(job)
+      && getOperationalStatus(job) === "In Progress";
+  }
+
+  function canFieldStart(job) {
+    return appState.session?.role === "field"
+      && isAccepted(job)
+      && !hasStarted(job)
+      && ["Scheduled", "Not Started"].includes(getOperationalStatus(job));
   }
 
   function canFieldAccept(job) {
@@ -248,6 +282,7 @@
   function canFieldReject(job) {
     return appState.session?.role === "field"
       && ["Assigned", "Scheduled"].includes(getLifecycleStage(job))
+      && !hasStarted(job)
       && !["Completed", "Closed"].includes(getLifecycleStage(job));
   }
 
@@ -331,6 +366,26 @@
     return getJobUpdates(jobId)[0] || null;
   }
 
+  function getClosedAt(job) {
+    const closedEvent = getJobStageEvents(job.id).find((event) => event.stage === "Closed");
+    return closedEvent?.enteredAt || job.adminReviewedAt || "";
+  }
+
+  function collectUpdateValues(jobId, key) {
+    return [...new Set(getJobUpdates(jobId).flatMap((update) => {
+      if (Array.isArray(update[key])) {
+        return update[key];
+      }
+      return update[key] ? [update[key]] : [];
+    }).filter(Boolean))];
+  }
+
+  function renderValuePills(values, emptyLabel) {
+    return values.length
+      ? values.map((value) => `<span class="pill">${value}</span>`).join("")
+      : `<span class="muted">${emptyLabel}</span>`;
+  }
+
   function summarizeUpdate(update) {
     if (!update) {
       return "No updates yet";
@@ -405,7 +460,7 @@
   }
 
   function buildCycleExportRows({ fromDate = "", toDate = "" } = {}) {
-    const stageOrder = ["Uploaded", "Assigned", "Scheduled", "Completed", "Closed"];
+    const stageOrder = ["Uploaded", "Assigned", "Scheduled", "In Progress", "Completed", "Closed"];
     return appState.jobs.flatMap((job) => {
       if ((fromDate || toDate) && !isWithinDateRange(job.scheduledStartAt, fromDate, toDate)) {
         return [];
@@ -430,10 +485,13 @@
           jobId: job.id,
           jobTitle: job.title,
           market: job.market,
+          jobAddress: job.jobAddress || "",
           requestedBy: job.requestedBy,
           jobType: job.jobType,
           priority: job.priority,
           teamName: job.assignedTo || "",
+          dispatcherName: job.dispatcherName || "",
+          dispatcherPhone: job.dispatcherPhone || "",
           currentCycle: getLifecycleStage(job),
           currentStatus: getOperationalStatus(job),
           lastProcessedCycle: stage,
@@ -479,10 +537,13 @@
       "jobId",
       "jobTitle",
       "market",
+      "jobAddress",
       "requestedBy",
       "jobType",
       "priority",
       "teamName",
+      "dispatcherName",
+      "dispatcherPhone",
       "currentCycle",
       "currentStatus",
       "lastProcessedCycle",
@@ -599,6 +660,11 @@
               <strong>${update.authorName}</strong>
               <span class="muted">${formatDateTime(update.createdAt)}</span>
             </div>
+            <div class="job-tags">
+              ${update.updateType ? `<span class="pill">${update.updateType}</span>` : ""}
+              ${update.workDone ? `<span class="pill">${update.workDone}</span>` : ""}
+              ${(update.codesUsed || []).map((code) => `<span class="pill">${code}</span>`).join("")}
+            </div>
             <p>${update.note}</p>
             ${(update.attachments || []).length ? `
               <div class="attachment-list">
@@ -698,11 +764,24 @@
         status: elements.fieldStatusFilter.value,
         query: elements.fieldSearch.value.trim().toLowerCase()
       },
+      history: {
+        type: elements.historyTypeFilter.value,
+        query: elements.historySearch.value.trim().toLowerCase()
+      },
       kpiGroup: elements.kpiGroupFilter.value,
       kpiEntity: elements.kpiEntityFilter.value,
       kpiDateFrom: elements.kpiDateFrom.value,
       kpiDateTo: elements.kpiDateTo.value
     };
+  }
+
+  function populateHistoryTypeFilter() {
+    const currentValue = elements.historyTypeFilter.value;
+    const options = [...new Set(appState.jobs.map((job) => job.jobType).filter(Boolean))].sort((left, right) => left.localeCompare(right));
+    elements.historyTypeFilter.innerHTML = [`<option value="all">All job types</option>`]
+      .concat(options.map((option) => `<option value="${option}">${option}</option>`))
+      .join("");
+    elements.historyTypeFilter.value = options.includes(currentValue) ? currentValue : "all";
   }
 
   function populateKpiEntityFilter() {
@@ -776,16 +855,17 @@
 
   function renderMetrics() {
     const jobs = appState.jobs;
-    const assigned = jobs.filter((job) => job.assignedTo).length;
+    const assigned = jobs.filter((job) => ["Assigned", "Scheduled", "In Progress"].includes(getLifecycleStage(job))).length;
     const blocked = jobs.filter((job) => Boolean(job.blockerReason)).length;
+    const closed = jobs.filter((job) => getLifecycleStage(job) === "Closed").length;
     const totalValue = jobs.reduce((sum, job) => sum + Number(job.jobValue || 0), 0);
     const margin = jobs.reduce((sum, job) => sum + getMargin(job), 0);
 
     elements.metricGrid.innerHTML = [
-      { label: "Tracked jobs", value: jobs.length, note: "Across upload, assignment, field execution, and closeout" },
+      { label: "Tracked jobs", value: jobs.length, note: "Across upload, assignment, field execution, closeout, and history" },
       { label: "Assigned jobs", value: assigned, note: "Visible by team or contractor for dispatching" },
       { label: "Blocked jobs", value: blocked, note: "Active jobs with permit, staffing, access, or material blockers" },
-      { label: "Portfolio value", value: formatCurrency(totalValue), note: `${formatCurrency(margin)} estimated gross margin across visible work` }
+      { label: "Closed jobs", value: closed, note: `${formatCurrency(totalValue)} in tracked value and ${formatCurrency(margin)} estimated margin` }
     ].map((metric) => `
       <article class="metric-card">
         <p class="eyebrow">${metric.label}</p>
@@ -797,6 +877,7 @@
 
   function renderDeadlineList() {
     const items = [...appState.jobs]
+      .filter((job) => !["Completed", "Closed"].includes(getLifecycleStage(job)))
       .sort((a, b) => new Date(a.scheduledStartAt) - new Date(b.scheduledStartAt))
       .slice(0, 5);
 
@@ -825,6 +906,9 @@
 
   function renderAlerts() {
     const items = appState.jobs.filter((job) => {
+      if (["Completed", "Closed"].includes(getLifecycleStage(job))) {
+        return false;
+      }
       const window = getAssignmentWindow(job);
       return window.label !== "Open" || Boolean(job.blockerReason) || getMargin(job) < 0;
     }).slice(0, 6);
@@ -847,11 +931,74 @@
     }).join("") : emptyState("No active alerts.");
   }
 
+  function renderDashboardShortcuts() {
+    const activeJobs = appState.jobs.filter((job) => !["Completed", "Closed"].includes(getLifecycleStage(job))).length;
+    const readyToStart = appState.jobs.filter((job) => ["Scheduled", "Not Started"].includes(getOperationalStatus(job)) && isAccepted(job) && !hasStarted(job)).length;
+    const readyToClose = appState.jobs.filter((job) => getLifecycleStage(job) === "Completed").length;
+    const shortcuts = [
+      { label: "Dispatch jobs", note: `${activeJobs} active jobs in circulation`, screen: "admin" },
+      { label: "Start-ready crews", note: `${readyToStart} scheduled jobs waiting on crew start`, screen: "field" },
+      { label: "Closeout queue", note: `${readyToClose} jobs waiting on final review`, screen: "history" }
+    ];
+    elements.dashboardShortcuts.innerHTML = shortcuts.map((shortcut) => `
+      <button class="shortcut-card" type="button" data-nav-screen="${shortcut.screen}">
+        <strong>${shortcut.label}</strong>
+        <span>${shortcut.note}</span>
+      </button>
+    `).join("");
+  }
+
+  function renderHistoryPreview() {
+    const items = [...appState.jobs]
+      .filter((job) => getLifecycleStage(job) === "Closed")
+      .sort((left, right) => new Date(getClosedAt(right) || 0) - new Date(getClosedAt(left) || 0))
+      .slice(0, 3);
+    elements.historyPreview.innerHTML = items.length ? items.map((job) => `
+      <article class="job-card compact-card">
+        <div class="job-card-header">
+          <div>
+            <p class="eyebrow">${job.jobType}</p>
+            <h4>${job.title}</h4>
+          </div>
+          <span class="status closed">Closed</span>
+        </div>
+        <div class="job-tags">
+          <span class="pill">${job.jobAddress || job.market}</span>
+          <span class="pill">${formatDateTime(getClosedAt(job) || job.adminReviewedAt)}</span>
+        </div>
+      </article>
+    `).join("") : emptyState("No closed jobs yet.");
+  }
+
+  function renderDashboardBreakdown() {
+    const closedJobs = appState.jobs.filter((job) => getLifecycleStage(job) === "Closed");
+    const typeCounts = new Map();
+    const codeCounts = new Map();
+    closedJobs.forEach((job) => {
+      typeCounts.set(job.jobType, (typeCounts.get(job.jobType) || 0) + 1);
+      collectUpdateValues(job.id, "codesUsed").forEach((code) => {
+        codeCounts.set(code, (codeCounts.get(code) || 0) + 1);
+      });
+    });
+    const topTypes = [...typeCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
+    const topCodes = [...codeCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+    elements.dashboardBreakdown.innerHTML = `
+      <article class="info-card">
+        <p class="eyebrow">Top job types</p>
+        <div class="job-tags">${renderValuePills(topTypes.map(([name, count]) => `${name} (${count})`), "No closed job types yet.")}</div>
+      </article>
+      <article class="info-card">
+        <p class="eyebrow">Top codes used</p>
+        <div class="job-tags">${renderValuePills(topCodes.map(([name, count]) => `${name} (${count})`), "No closeout codes logged yet.")}</div>
+      </article>
+    `;
+  }
+
   function renderMasterGrid(filters) {
     const filteredItems = appState.jobs.filter((job) => {
       const lifecycle = getLifecycleStage(job);
       const statusMatch = filters.status === "all" || lifecycle === filters.status;
-      const haystack = `${job.title} ${job.requestedBy} ${job.market} ${job.jobType} ${job.assignedTo} ${job.blockerReason}`.toLowerCase();
+      const haystack = `${job.title} ${job.requestedBy} ${job.market} ${job.jobAddress} ${job.jobType} ${job.assignedTo} ${job.dispatcherName} ${job.blockerReason}`.toLowerCase();
       return statusMatch && (!filters.query || haystack.includes(filters.query));
     });
     const items = sortJobs(filteredItems);
@@ -883,6 +1030,7 @@
               <td class="sheet-primary-cell">
                 <strong>${job.title}</strong>
                 <span>${job.requestedBy}</span>
+                <span>${job.jobAddress || job.market}</span>
               </td>
               <td>
                 <div>${job.market}</div>
@@ -898,7 +1046,7 @@
                 <div>${latestUpdate ? formatDateTime(latestUpdate.createdAt) : "No updates yet"}</div>
                 <span>${summarizeUpdate(latestUpdate)}</span>
               </td>
-              <td>${job.assignedTo || "Unassigned"}</td>
+              <td>${job.assignedTo || "Unassigned"}<div class="sheet-substatus">${job.dispatcherName || "No dispatcher listed"}</div></td>
               <td>${formatDateTime(job.scheduledStartAt)}</td>
               <td>${formatCurrency(job.jobValue)}</td>
               <td>${formatCurrency(job.laborCost)}</td>
@@ -913,7 +1061,7 @@
               <td><button class="sheet-inline-action" data-action="log-update" data-id="${job.id}">Add update</button></td>
               <td>${appState.session?.role === "admin" && !isAdminApproved(job) ? `<button class="sheet-inline-action" data-action="admin-signoff" data-id="${job.id}">Admin signoff</button>` : ""}</td>
               <td><button class="sheet-inline-action" data-action="${job.blockerReason ? "clear-blocker" : "add-blocker"}" data-id="${job.id}">${job.blockerReason ? "Clear blocker" : "Add blocker"}</button></td>
-              <td>${canFieldComplete(job) ? `<button class="sheet-inline-action" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}</td>
+              <td>${canFieldStart(job) ? `<button class="sheet-inline-action" data-action="start-job" data-id="${job.id}">Start job</button>` : canFieldComplete(job) ? `<button class="sheet-inline-action" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}</td>
               <td></td>
               <td></td>
               <td></td>
@@ -931,7 +1079,7 @@
     const items = appState.jobs.filter((job) => {
       const window = getAssignmentWindow(job);
       const statusMatch = filters.window === "all" || window.label === filters.window;
-      const haystack = `${job.title} ${job.market} ${job.assignedTo} ${job.requestedBy}`.toLowerCase();
+      const haystack = `${job.title} ${job.market} ${job.jobAddress} ${job.assignedTo} ${job.requestedBy} ${job.dispatcherName}`.toLowerCase();
       return statusMatch && (!filters.query || haystack.includes(filters.query));
     });
 
@@ -963,6 +1111,10 @@
                       <p class="board-card-status status ${getStatusClass(getOperationalStatus(job))}">${getOperationalStatus(job)}</p>
                     </div>
                   </div>
+                  <div class="board-card-meta">
+                    <span class="pill">${job.jobAddress || job.market}</span>
+                    <span class="pill">${job.dispatcherName || "Dispatcher not set"}</span>
+                  </div>
                   <div class="job-actions compact-actions">
                     <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
                   </div>
@@ -981,12 +1133,12 @@
     const items = appState.jobs.filter((job) => {
       const status = getOperationalStatus(job);
       const statusMatch = filters.status === "all" || status === filters.status;
-      const haystack = `${job.title} ${job.market} ${job.assignedTo} ${job.blockerReason}`.toLowerCase();
+      const haystack = `${job.title} ${job.market} ${job.jobAddress} ${job.assignedTo} ${job.dispatcherName} ${job.blockerReason}`.toLowerCase();
       return statusMatch && (!filters.query || haystack.includes(filters.query));
     });
 
     elements.fieldList.innerHTML = items.length ? items.map((job) => {
-      const needsUpdateBeforeComplete = isAccepted(job) && ["Scheduled", "Not Started", "In Progress"].includes(getOperationalStatus(job)) && getJobUpdates(job.id).length === 0;
+      const needsUpdateBeforeComplete = isAccepted(job) && getOperationalStatus(job) === "In Progress" && getJobUpdates(job.id).length === 0;
       return `
       <article class="job-card">
         <div class="job-card-header">
@@ -998,6 +1150,7 @@
         </div>
         <div class="job-tags">
           <span class="pill">${job.jobType}</span>
+          <span class="pill">${job.jobAddress || job.market}</span>
           <span class="pill">Start ${formatDateTime(job.scheduledStartAt)}</span>
           <span class="pill">Planned ${Number(job.plannedHours || 0)}h</span>
           <span class="pill">Actual ${Number(job.actualHours || 0)}h</span>
@@ -1006,10 +1159,14 @@
           <div class="progress-bar"><span style="width:${job.completion}%"></span></div>
           <p class="muted">${job.completion}% complete | ${formatCurrency(job.jobValue)} value | ${formatCurrency(job.laborCost)} labor</p>
           <p class="muted">${job.blockerReason || job.issue}</p>
+          <p class="muted">Dispatcher: ${job.dispatcherName || "Not listed"} | ${formatPhone(job.dispatcherPhone)}</p>
         </div>
         <div class="job-actions">
           <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
+          ${getMapsUrl(job) ? `<a class="action-btn action-link" href="${getMapsUrl(job)}" target="_blank" rel="noreferrer">Open in Maps</a>` : ""}
+          ${job.dispatcherPhone ? `<a class="action-btn action-link" href="tel:${job.dispatcherPhone}">Call dispatcher</a>` : ""}
           ${canFieldAccept(job) ? `<button class="action-btn" data-action="accept-job" data-id="${job.id}">Accept job</button>` : ""}
+          ${canFieldStart(job) ? `<button class="action-btn" data-action="start-job" data-id="${job.id}">Start job</button>` : ""}
           ${canFieldReject(job) ? `<button class="action-btn" data-action="reject-job" data-id="${job.id}">Reject job</button>` : ""}
           ${canFieldComplete(job) ? `<button class="action-btn" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}
           <button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>
@@ -1024,6 +1181,48 @@
         </div>
       </article>
     `;}).join("") : emptyState("No assigned field jobs match the current filters.");
+  }
+
+  function renderHistoryList(filters) {
+    const items = [...appState.jobs]
+      .filter((job) => getLifecycleStage(job) === "Closed")
+      .filter((job) => {
+        const typeMatch = filters.type === "all" || job.jobType === filters.type;
+        const haystack = `${job.title} ${job.market} ${job.jobAddress} ${job.jobType} ${job.dispatcherName}`.toLowerCase();
+        return typeMatch && (!filters.query || haystack.includes(filters.query));
+      })
+      .sort((left, right) => new Date(getClosedAt(right) || 0) - new Date(getClosedAt(left) || 0));
+
+    elements.historyList.innerHTML = items.length ? items.map((job) => `
+      <article class="job-card">
+        <div class="job-card-header">
+          <div>
+            <p class="eyebrow">${job.jobType}</p>
+            <h4>${job.title}</h4>
+          </div>
+          <span class="status closed">Closed</span>
+        </div>
+        <div class="job-tags">
+          <span class="pill">${job.jobAddress || job.market}</span>
+          <span class="pill">Closed ${formatDateTime(getClosedAt(job) || job.adminReviewedAt)}</span>
+          <span class="pill">Dispatcher: ${job.dispatcherName || "Not listed"}</span>
+        </div>
+        <div class="detail-stack">
+          <div>
+            <p class="eyebrow">Work done</p>
+            <div class="job-tags">${renderValuePills(collectUpdateValues(job.id, "workDone"), "No work-done selections logged.")}</div>
+          </div>
+          <div>
+            <p class="eyebrow">Codes used</p>
+            <div class="job-tags">${renderValuePills(collectUpdateValues(job.id, "codesUsed"), "No codes logged.")}</div>
+          </div>
+        </div>
+        <div class="job-actions">
+          <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
+          ${getMapsUrl(job) ? `<a class="action-btn action-link" href="${getMapsUrl(job)}" target="_blank" rel="noreferrer">Open in Maps</a>` : ""}
+        </div>
+      </article>
+    `).join("") : emptyState("No closed jobs match the current filters.");
   }
 
   function renderCrews() {
@@ -1332,13 +1531,18 @@
   function renderApp() {
     const filters = getFilters();
     renderMetrics();
+    renderDashboardShortcuts();
+    renderHistoryPreview();
+    renderDashboardBreakdown();
     renderDeadlineList();
     renderAlerts();
     renderMasterGrid(filters.intake);
     renderStageBoard(filters.assignment);
     renderCrews();
+    populateHistoryTypeFilter();
     populateKpiEntityFilter();
     renderFieldJobs(filters.field);
+    renderHistoryList(filters.history);
     renderKpis(filters.kpiGroup, filters.kpiEntity, filters.kpiDateFrom, filters.kpiDateTo);
   }
 
@@ -1384,9 +1588,18 @@
   }
 
   function openUpdateDialog(jobId) {
+    const job = appState.jobs.find((item) => String(item.id) === String(jobId));
     elements.updateForm.elements.jobId.value = String(jobId);
     elements.updateForm.elements.note.value = "";
     elements.updateForm.elements.attachment.value = "";
+    elements.updateForm.elements.updateType.value = "Work performed";
+    elements.updateForm.elements.workDone.value = "";
+    Array.from(elements.updateForm.elements.codesUsed.options).forEach((option) => {
+      option.selected = false;
+    });
+    if (job && canFieldStart(job)) {
+      elements.updateForm.elements.updateType.value = "Crew started job";
+    }
     elements.updateDialog.showModal();
   }
 
@@ -1428,6 +1641,8 @@
       <article class="info-card">
         <strong>${job.title}</strong><br>
         <span class="muted">${job.market} | ${job.jobType}</span><br>
+        <span class="muted">Address: ${job.jobAddress || job.market}</span><br>
+        <span class="muted">Dispatcher: ${job.dispatcherName || "Not listed"} | ${formatPhone(job.dispatcherPhone)}</span><br>
         <span class="muted">Workflow step: ${getLifecycleStage(job)}</span><br>
         <span class="muted">Live status: ${getOperationalStatus(job)}</span><br>
         <span class="muted">Admin signoff: ${isAdminApproved(job) ? "Complete" : "Pending"}</span><br>
@@ -1437,6 +1652,10 @@
         <span class="muted">Blocker: ${job.blockerReason ? `${job.blockerStage || job.lifecycleStage} | ${job.blockerReason}` : "None"}</span><br>
         <span class="muted">Assignment note: Vendor availability is currently based on schedule conflicts, not location restrictions.</span>
       </article>
+    `;
+    elements.jobDetailQuickLinks.innerHTML = `
+      ${getMapsUrl(job) ? `<a class="action-btn action-link" href="${getMapsUrl(job)}" target="_blank" rel="noreferrer">Open in Maps</a>` : ""}
+      ${job.dispatcherPhone ? `<a class="action-btn action-link" href="tel:${job.dispatcherPhone}">Call dispatcher</a>` : ""}
     `;
     elements.jobDetailStageSelect.innerHTML = editableLifecycleStages.map((stage) => `<option value="${stage}">${stage}</option>`).join("");
     elements.jobDetailStageSelect.value = mapUiStageToStoredStage(getLifecycleStage(job));
@@ -1464,9 +1683,10 @@
         ${renderUpdatesPreview(job.id)}
       </div>
     `;
-    const needsUpdateBeforeComplete = isAccepted(job) && ["Scheduled", "Not Started", "In Progress"].includes(getOperationalStatus(job)) && getJobUpdates(job.id).length === 0;
+    const needsUpdateBeforeComplete = isAccepted(job) && getOperationalStatus(job) === "In Progress" && getJobUpdates(job.id).length === 0;
     elements.jobFieldActionsList.innerHTML = isAdmin ? "" : `
       ${canFieldAccept(job) ? `<button class="action-btn" type="button" data-action="accept-job" data-id="${job.id}">Accept job</button>` : ""}
+      ${canFieldStart(job) ? `<button class="action-btn" type="button" data-action="start-job" data-id="${job.id}">Start job</button>` : ""}
       ${canFieldReject(job) ? `<button class="action-btn" type="button" data-action="reject-job" data-id="${job.id}">Reject job</button>` : ""}
       ${canFieldComplete(job) ? `<button class="action-btn" type="button" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}
       <button class="action-btn" type="button" data-action="log-update" data-id="${job.id}">Add update</button>
@@ -1581,6 +1801,17 @@
       return;
     }
 
+    if (action === "start-job") {
+      await updateJob(jobId, {
+        started: true,
+        accepted: true,
+        lifecycleStage: "In Progress",
+        issue: "Crew officially started work and moved the job into progress."
+      });
+      window.alert("Job was started and is now in progress.");
+      return;
+    }
+
     if (action === "reject-job") {
       openRejectDialog(jobId, job.rejectionReason || "");
       return;
@@ -1590,7 +1821,6 @@
       await updateJob(jobId, {
         lifecycleStage: "Completed",
         completion: 100,
-        started: true,
         accepted: true,
         issue: "Field crew marked the job complete."
       });
@@ -1693,6 +1923,8 @@
       elements.assignmentSearch,
       elements.fieldStatusFilter,
       elements.fieldSearch,
+      elements.historyTypeFilter,
+      elements.historySearch,
       elements.kpiGroupFilter,
       elements.kpiEntityFilter,
       elements.kpiDateFrom,
@@ -1704,7 +1936,12 @@
       renderApp();
     });
 
-    elements.openJobDialog.addEventListener("click", () => elements.jobDialog.showModal());
+    elements.openJobDialog.addEventListener("click", () => {
+      if (appState.session?.name) {
+        elements.jobForm.elements.dispatcherName.value = appState.session.name;
+      }
+      elements.jobDialog.showModal();
+    });
     elements.exportCsvButton.addEventListener("click", downloadCycleExport);
     elements.refreshDataButton.addEventListener("click", refreshApp);
     elements.closeJobDialog.addEventListener("click", () => elements.jobDialog.close());
@@ -1739,10 +1976,13 @@
           title: form.get("title"),
           market: form.get("market"),
           requestedBy: form.get("requestedBy"),
+          jobAddress: form.get("jobAddress"),
           jobType: form.get("jobType"),
           scheduledStartAt: form.get("scheduledStartAt"),
           priority: form.get("priority"),
           assignedTo: form.get("assignedTo"),
+          dispatcherName: form.get("dispatcherName"),
+          dispatcherPhone: form.get("dispatcherPhone"),
           jobValue: Number(form.get("jobValue") || 0),
           laborCost: Number(form.get("laborCost") || 0),
           plannedHours: Number(form.get("plannedHours") || 0),
@@ -1800,6 +2040,9 @@
       await api(`/api/jobs/${jobId}/updates`, {
         method: "POST",
         body: JSON.stringify({
+          updateType: form.get("updateType"),
+          workDone: form.get("workDone"),
+          codesUsed: Array.from(elements.updateForm.elements.codesUsed.selectedOptions).map((option) => option.value),
           note: form.get("note"),
           attachments
         })
@@ -1898,6 +2141,11 @@
     });
 
     document.body.addEventListener("click", (event) => {
+      const navButton = event.target.closest("[data-nav-screen]");
+      if (navButton) {
+        setScreen(navButton.dataset.navScreen);
+        return;
+      }
       const sortButton = event.target.closest("[data-sort-key]");
       if (sortButton) {
         toggleSort(sortButton.dataset.sortKey);

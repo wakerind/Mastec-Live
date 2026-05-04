@@ -29,7 +29,7 @@ const mimeTypes = {
   ".txt": "text/plain; charset=utf-8"
 };
 
-const lifecycleStages = ["Uploaded", "Assigned", "Scheduled", "Completed", "Closed"];
+const lifecycleStages = ["Uploaded", "Assigned", "Scheduled", "In Progress", "Completed", "Closed"];
 const maxAttachmentBatchBytes = 30 * 1024 * 1024;
 const allowedAttachmentMimeTypes = new Set([
   "image/jpeg",
@@ -94,8 +94,11 @@ function currentLifecycle(job) {
   if (status === "Rejected") {
     return "Uploaded";
   }
-  if (["Scheduled", "Not Started", "In Progress"].includes(status)) {
+  if (["Scheduled", "Not Started"].includes(status)) {
     return "Scheduled";
+  }
+  if (status === "In Progress") {
+    return "In Progress";
   }
   if (status === "Admin Reviewed") {
     return "Completed";
@@ -298,6 +301,16 @@ function diffHours(startValue, endValue) {
   return Number(((end - start) / (1000 * 60 * 60)).toFixed(2));
 }
 
+function normalizeCodesUsed(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
 function buildCycleAnalytics(jobs, stageEvents) {
   const eventsByJob = new Map();
   stageEvents.forEach((event) => {
@@ -311,12 +324,13 @@ function buildCycleAnalytics(jobs, stageEvents) {
     const ordered = [...(eventsByJob.get(job.id) || [])].sort((left, right) => new Date(left.enteredAt) - new Date(right.enteredAt));
     const lastAssigned = [...ordered].reverse().find((event) => event.stage === "Assigned");
     const lastScheduled = [...ordered].reverse().find((event) => event.stage === "Scheduled");
+    const lastInProgress = [...ordered].reverse().find((event) => event.stage === "In Progress");
     const lastCompleted = [...ordered].reverse().find((event) => event.stage === "Completed");
     const lastClosed = [...ordered].reverse().find((event) => event.stage === "Closed");
 
     const adminAssignmentHours = diffHours(job.createdAt, lastAssigned?.enteredAt);
     const assignedToScheduleHours = diffHours(lastAssigned?.enteredAt, lastScheduled?.enteredAt);
-    const fieldExecutionHours = diffHours(lastScheduled?.enteredAt, lastCompleted?.enteredAt);
+    const fieldExecutionHours = diffHours(lastInProgress?.enteredAt || lastScheduled?.enteredAt, lastCompleted?.enteredAt);
     const adminCloseHours = diffHours(lastCompleted?.enteredAt, lastClosed?.enteredAt);
     const closedLoopHours = adminCloseHours;
     const expectedHours = Number(job.plannedHours || 0);
@@ -504,10 +518,13 @@ const server = http.createServer(async (req, res) => {
         title: String(body.title || ""),
         market: String(body.market || ""),
         requestedBy: String(body.requestedBy || ""),
+        jobAddress: String(body.jobAddress || ""),
         jobType: String(body.jobType || ""),
         priority: String(body.priority || "Medium"),
         scheduledStartAt: String(body.scheduledStartAt || ""),
         assignedTo: body.assignedTo || "",
+        dispatcherName: String(body.dispatcherName || user.name || ""),
+        dispatcherPhone: String(body.dispatcherPhone || ""),
         jobValue: Number(body.jobValue || 0),
         laborCost: Number(body.laborCost || 0),
         plannedHours: Number(body.plannedHours || 8),
@@ -539,7 +556,11 @@ const server = http.createServer(async (req, res) => {
       const previousLifecycleStage = existing.lifecycleStage || "Uploaded";
       if (user.role === "admin") {
         const previousAssignedTo = next.assignedTo;
+        next.requestedBy = body.requestedBy ?? next.requestedBy;
+        next.jobAddress = body.jobAddress ?? next.jobAddress;
         next.assignedTo = body.assignedTo ?? next.assignedTo;
+        next.dispatcherName = body.dispatcherName ?? next.dispatcherName;
+        next.dispatcherPhone = body.dispatcherPhone ?? next.dispatcherPhone;
         next.scheduledStartAt = body.scheduledStartAt ?? next.scheduledStartAt;
         next.priority = body.priority ?? next.priority;
         next.jobValue = body.jobValue ?? next.jobValue;
@@ -563,6 +584,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (next.assignedTo && next.assignedTo !== previousAssignedTo) {
+          next.dispatcherName = body.dispatcherName ?? user.name ?? next.dispatcherName;
           next.acceptedAt = null;
           next.startedAt = null;
           next.rejectedAt = null;
@@ -739,6 +761,9 @@ const server = http.createServer(async (req, res) => {
         jobId,
         authorName: user.name,
         authorRole: user.role,
+        updateType: String(body.updateType || ""),
+        workDone: String(body.workDone || ""),
+        codesUsed: normalizeCodesUsed(body.codesUsed),
         note: String(body.note || ""),
         attachments
       });

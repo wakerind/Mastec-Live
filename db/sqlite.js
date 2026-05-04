@@ -173,11 +173,14 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       title TEXT NOT NULL,
       market TEXT NOT NULL,
       requested_by TEXT NOT NULL,
+      job_address TEXT NOT NULL DEFAULT '',
       job_type TEXT NOT NULL,
       priority TEXT NOT NULL,
       intake_status TEXT NOT NULL,
       scheduled_start_at TEXT NOT NULL,
       assigned_to TEXT,
+      dispatcher_name TEXT NOT NULL DEFAULT '',
+      dispatcher_phone TEXT NOT NULL DEFAULT '',
       field_status TEXT NOT NULL,
       completion INTEGER NOT NULL DEFAULT 0,
       budget REAL NOT NULL DEFAULT 1.5,
@@ -206,6 +209,9 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
       author_name TEXT NOT NULL,
       author_role TEXT NOT NULL,
+      update_type TEXT NOT NULL DEFAULT '',
+      work_done TEXT NOT NULL DEFAULT '',
+      codes_used TEXT NOT NULL DEFAULT '[]',
       note TEXT NOT NULL DEFAULT '',
       attachment_name TEXT NOT NULL DEFAULT '',
       attachment_path TEXT NOT NULL DEFAULT '',
@@ -237,6 +243,9 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN labor_cost REAL NOT NULL DEFAULT 0");
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN planned_hours REAL NOT NULL DEFAULT 8");
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN actual_hours REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN job_address TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN dispatcher_name TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN dispatcher_phone TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN blocker_reason TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN blocker_stage TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN lifecycle_stage TEXT NOT NULL DEFAULT 'Uploaded'");
@@ -250,6 +259,9 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
   addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN contact_email TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN contact_phone TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN coverage_area TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN update_type TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN work_done TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN codes_used TEXT NOT NULL DEFAULT '[]'");
   addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN attachment_name TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN attachment_path TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN attachment_mime TEXT NOT NULL DEFAULT ''");
@@ -394,11 +406,14 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
           title,
           market,
           requested_by AS requestedBy,
+          COALESCE(job_address, '') AS jobAddress,
           job_type AS jobType,
           priority,
           intake_status AS intakeStatus,
           scheduled_start_at AS scheduledStartAt,
           COALESCE(assigned_to, '') AS assignedTo,
+          COALESCE(dispatcher_name, '') AS dispatcherName,
+          COALESCE(dispatcher_phone, '') AS dispatcherPhone,
           field_status AS fieldStatus,
           completion,
           COALESCE(job_value, budget * 1000000) AS jobValue,
@@ -429,11 +444,14 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
           title,
           market,
           requested_by AS requestedBy,
+          COALESCE(job_address, '') AS jobAddress,
           job_type AS jobType,
           priority,
           intake_status AS intakeStatus,
           scheduled_start_at AS scheduledStartAt,
           COALESCE(assigned_to, '') AS assignedTo,
+          COALESCE(dispatcher_name, '') AS dispatcherName,
+          COALESCE(dispatcher_phone, '') AS dispatcherPhone,
           field_status AS fieldStatus,
           completion,
           COALESCE(job_value, budget * 1000000) AS jobValue,
@@ -455,26 +473,29 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         FROM jobs WHERE id = ?
       `).get(jobId);
     },
-    async createJob({ title, market, requestedBy, jobType, priority, scheduledStartAt, assignedTo, jobValue, laborCost, plannedHours, blockerReason, createdByUserId }) {
+    async createJob({ title, market, requestedBy, jobAddress, jobType, priority, scheduledStartAt, assignedTo, dispatcherName, dispatcherPhone, jobValue, laborCost, plannedHours, blockerReason, createdByUserId }) {
       const normalizedJobValue = Number(jobValue || 0);
       const normalizedLaborCost = Number(laborCost || 0);
       const normalizedPlannedHours = Number(plannedHours || 0) || 8;
       const lifecycleStage = assignedTo ? "Assigned" : "Uploaded";
       const result = db.prepare(`
         INSERT INTO jobs (
-          title, market, requested_by, job_type, priority, intake_status, scheduled_start_at,
-          assigned_to, field_status, completion, budget, job_value, labor_cost, planned_hours,
+          title, market, requested_by, job_address, job_type, priority, intake_status, scheduled_start_at,
+          assigned_to, dispatcher_name, dispatcher_phone, field_status, completion, budget, job_value, labor_cost, planned_hours,
           actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, started_at, admin_reviewed_at, issue, quality_score, duration_variance, created_at, created_by_user_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         title,
         market,
         requestedBy,
+        jobAddress || "",
         jobType,
         priority,
         assignedTo ? "Assigned" : "Uploaded",
         scheduledStartAt,
         assignedTo || null,
+        dispatcherName || requestedBy || "",
+        dispatcherPhone || "",
         assignedTo ? "Assigned" : "Uploaded",
         0,
         normalizedJobValue / 1000000,
@@ -508,6 +529,7 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       db.prepare(`
         UPDATE jobs
         SET intake_status = ?, assigned_to = ?, scheduled_start_at = ?, priority = ?,
+            requested_by = ?, job_address = ?, dispatcher_name = ?, dispatcher_phone = ?,
             field_status = ?, completion = ?, issue = ?, job_value = ?, labor_cost = ?,
             planned_hours = ?, actual_hours = ?, blocker_reason = ?, blocker_stage = ?, lifecycle_stage = ?, admin_approved = ?, accepted_at = ?, started_at = ?, admin_reviewed_at = ?, rejected_at = ?, rejection_reason = ?, duration_variance = ?,
             budget = ?
@@ -517,6 +539,10 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         next.assignedTo || null,
         next.scheduledStartAt,
         next.priority,
+        next.requestedBy || "",
+        next.jobAddress || "",
+        next.dispatcherName || "",
+        next.dispatcherPhone || "",
         next.fieldStatus,
         Number(next.completion),
         next.issue,
@@ -583,6 +609,9 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
           job_id AS jobId,
           author_name AS authorName,
           author_role AS authorRole,
+          update_type AS updateType,
+          work_done AS workDone,
+          codes_used AS codesUsed,
           note,
           attachment_name AS attachmentName,
           attachment_path AS attachmentPath,
@@ -617,14 +646,15 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       });
       return updates.map((update) => ({
         ...update,
+        codesUsed: JSON.parse(update.codesUsed || "[]"),
         attachments: attachmentsByUpdate.get(update.id) || []
       }));
     },
-    async createJobUpdate({ jobId, authorName, authorRole, note, attachments }) {
+    async createJobUpdate({ jobId, authorName, authorRole, updateType, workDone, codesUsed, note, attachments }) {
       const result = db.prepare(`
-        INSERT INTO job_updates (job_id, author_name, author_role, note, attachment_name, attachment_path, attachment_mime, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(jobId, authorName, authorRole, note || "", "", "", "", nowIso());
+        INSERT INTO job_updates (job_id, author_name, author_role, update_type, work_done, codes_used, note, attachment_name, attachment_path, attachment_mime, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(jobId, authorName, authorRole, updateType || "", workDone || "", JSON.stringify(Array.isArray(codesUsed) ? codesUsed : []), note || "", "", "", "", nowIso());
       const updateId = Number(result.lastInsertRowid);
       const insertAttachment = db.prepare(`
         INSERT INTO job_update_attachments (job_update_id, attachment_name, attachment_path, attachment_mime, created_at)

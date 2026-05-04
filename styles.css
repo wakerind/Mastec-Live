@@ -226,6 +226,7 @@ button:hover {
 
 .metric-grid,
 .content-grid,
+.dashboard-grid,
 .login-grid,
 .job-list,
 .crew-list,
@@ -260,6 +261,44 @@ button:hover {
 
 .content-grid {
   grid-template-columns: 2fr 1fr;
+}
+
+.dashboard-grid {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.dashboard-panel {
+  min-height: 100%;
+}
+
+.shortcut-grid,
+.dashboard-breakdown {
+  margin-top: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.shortcut-card {
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 18px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(15, 118, 110, 0.12));
+  text-align: left;
+  display: grid;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.shortcut-card strong {
+  font-family: "Bahnschrift", "Arial Narrow", sans-serif;
+  font-size: 1.05rem;
+}
+
+.shortcut-card span {
+  color: var(--muted);
 }
 
 .overview-grid {
@@ -415,6 +454,10 @@ button:hover {
 .dialog-card textarea {
   resize: vertical;
   min-height: 120px;
+}
+
+.dialog-card select[multiple] {
+  min-height: 160px;
 }
 
 .job-card,
@@ -704,6 +747,13 @@ button:hover {
   border-radius: 999px;
   padding: 10px 12px;
   cursor: pointer;
+}
+
+.action-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--text);
 }
 
 .sheet-wrap {
@@ -1081,6 +1131,7 @@ dialog::backdrop {
 
   .metric-grid,
   .content-grid,
+  .dashboard-grid,
   .login-grid {
     grid-template-columns: 1fr 1fr;
   }
@@ -1129,6 +1180,7 @@ dialog::backdrop {
 
   .metric-grid,
   .content-grid,
+  .dashboard-grid,
   .login-grid {
     grid-template-columns: 1fr;
   }

@@ -80,6 +80,9 @@ async function ensureJobColumns(pool) {
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS labor_cost NUMERIC(12, 2) NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS planned_hours NUMERIC(10, 2) NOT NULL DEFAULT 8");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS actual_hours NUMERIC(10, 2) NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_address TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS dispatcher_name TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS dispatcher_phone TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS blocker_reason TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS blocker_stage TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS lifecycle_stage TEXT NOT NULL DEFAULT 'Uploaded'");
@@ -93,6 +96,9 @@ async function ensureJobColumns(pool) {
   await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS contact_email TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS contact_phone TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS coverage_area TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE job_updates ADD COLUMN IF NOT EXISTS update_type TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE job_updates ADD COLUMN IF NOT EXISTS work_done TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE job_updates ADD COLUMN IF NOT EXISTS codes_used TEXT NOT NULL DEFAULT '[]'");
 }
 
 export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso, rootDir }) {
@@ -266,11 +272,14 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
           title,
           market,
           requested_by AS "requestedBy",
+          COALESCE(job_address, '') AS "jobAddress",
           job_type AS "jobType",
           priority,
           intake_status AS "intakeStatus",
           to_char(scheduled_start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS "scheduledStartAt",
           COALESCE(assigned_to, '') AS "assignedTo",
+          COALESCE(dispatcher_name, '') AS "dispatcherName",
+          COALESCE(dispatcher_phone, '') AS "dispatcherPhone",
           field_status AS "fieldStatus",
           completion,
           COALESCE(job_value, budget * 1000000)::float8 AS "jobValue",
@@ -301,11 +310,14 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
           title,
           market,
           requested_by AS "requestedBy",
+          COALESCE(job_address, '') AS "jobAddress",
           job_type AS "jobType",
           priority,
           intake_status AS "intakeStatus",
           to_char(scheduled_start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS "scheduledStartAt",
           COALESCE(assigned_to, '') AS "assignedTo",
+          COALESCE(dispatcher_name, '') AS "dispatcherName",
+          COALESCE(dispatcher_phone, '') AS "dispatcherPhone",
           field_status AS "fieldStatus",
           completion,
           COALESCE(job_value, budget * 1000000)::float8 AS "jobValue",
@@ -327,27 +339,30 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         FROM jobs WHERE id = $1
       `, [jobId])).rows[0];
     },
-    async createJob({ title, market, requestedBy, jobType, priority, scheduledStartAt, assignedTo, jobValue, laborCost, plannedHours, blockerReason, createdByUserId }) {
+    async createJob({ title, market, requestedBy, jobAddress, jobType, priority, scheduledStartAt, assignedTo, dispatcherName, dispatcherPhone, jobValue, laborCost, plannedHours, blockerReason, createdByUserId }) {
       const normalizedJobValue = Number(jobValue || 0);
       const normalizedLaborCost = Number(laborCost || 0);
       const normalizedPlannedHours = Number(plannedHours || 0) || 8;
       const lifecycleStage = assignedTo ? "Assigned" : "Uploaded";
       const result = await pool.query(`
         INSERT INTO jobs (
-          title, market, requested_by, job_type, priority, intake_status, scheduled_start_at,
-          assigned_to, field_status, completion, budget, job_value, labor_cost, planned_hours,
+          title, market, requested_by, job_address, job_type, priority, intake_status, scheduled_start_at,
+          assigned_to, dispatcher_name, dispatcher_phone, field_status, completion, budget, job_value, labor_cost, planned_hours,
           actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, started_at, admin_reviewed_at, issue, quality_score, duration_variance, created_at, created_by_user_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
         RETURNING id
       `, [
         title,
         market,
         requestedBy,
+        jobAddress || "",
         jobType,
         priority,
         assignedTo ? "Assigned" : "Uploaded",
         scheduledStartAt,
         assignedTo || null,
+        dispatcherName || requestedBy || "",
+        dispatcherPhone || "",
         assignedTo ? "Assigned" : "Uploaded",
         0,
         normalizedJobValue / 1000000,
@@ -381,15 +396,20 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
       await pool.query(`
         UPDATE jobs
         SET intake_status = $1, assigned_to = $2, scheduled_start_at = $3::timestamptz, priority = $4,
-            field_status = $5, completion = $6, issue = $7, job_value = $8, labor_cost = $9,
-            planned_hours = $10, actual_hours = $11, blocker_reason = $12, blocker_stage = $13, lifecycle_stage = $14, admin_approved = $15, accepted_at = $16, started_at = $17, admin_reviewed_at = $18, rejected_at = $19, rejection_reason = $20, duration_variance = $21,
-            budget = $22
-        WHERE id = $23
+            requested_by = $5, job_address = $6, dispatcher_name = $7, dispatcher_phone = $8,
+            field_status = $9, completion = $10, issue = $11, job_value = $12, labor_cost = $13,
+            planned_hours = $14, actual_hours = $15, blocker_reason = $16, blocker_stage = $17, lifecycle_stage = $18, admin_approved = $19, accepted_at = $20, started_at = $21, admin_reviewed_at = $22, rejected_at = $23, rejection_reason = $24, duration_variance = $25,
+            budget = $26
+        WHERE id = $27
       `, [
         next.intakeStatus,
         next.assignedTo || null,
         next.scheduledStartAt,
         next.priority,
+        next.requestedBy || "",
+        next.jobAddress || "",
+        next.dispatcherName || "",
+        next.dispatcherPhone || "",
         next.fieldStatus,
         Number(next.completion),
         next.issue,
@@ -454,6 +474,9 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
           job_id::int AS "jobId",
           author_name AS "authorName",
           author_role AS "authorRole",
+          update_type AS "updateType",
+          work_done AS "workDone",
+          codes_used AS "codesUsed",
           note,
           attachment_name AS "attachmentName",
           attachment_path AS "attachmentPath",
@@ -487,15 +510,16 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
       });
       return updates.map((update) => ({
         ...update,
+        codesUsed: JSON.parse(update.codesUsed || "[]"),
         attachments: attachmentsByUpdate.get(update.id) || []
       }));
     },
-    async createJobUpdate({ jobId, authorName, authorRole, note, attachments }) {
+    async createJobUpdate({ jobId, authorName, authorRole, updateType, workDone, codesUsed, note, attachments }) {
       const result = await pool.query(`
-        INSERT INTO job_updates (job_id, author_name, author_role, note, attachment_name, attachment_path, attachment_mime, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO job_updates (job_id, author_name, author_role, update_type, work_done, codes_used, note, attachment_name, attachment_path, attachment_mime, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         RETURNING id
-      `, [jobId, authorName, authorRole, note || "", "", "", "", nowIso()]);
+      `, [jobId, authorName, authorRole, updateType || "", workDone || "", JSON.stringify(Array.isArray(codesUsed) ? codesUsed : []), note || "", "", "", "", nowIso()]);
       const updateId = Number(result.rows[0].id);
       for (const attachment of attachments || []) {
         await pool.query(`
