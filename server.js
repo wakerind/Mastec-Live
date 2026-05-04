@@ -559,6 +559,8 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (next.assignedTo && next.assignedTo !== previousAssignedTo) {
+          next.acceptedAt = null;
+          next.startedAt = null;
           next.rejectedAt = null;
           next.rejectionReason = "";
           if (next.adminApproved) {
@@ -570,6 +572,13 @@ const server = http.createServer(async (req, res) => {
           } else if (next.lifecycleStage === "Uploaded") {
             next.lifecycleStage = "Uploaded";
           }
+        }
+
+        if (!next.assignedTo && previousAssignedTo) {
+          next.acceptedAt = null;
+          next.startedAt = null;
+          next.rejectedAt = null;
+          next.rejectionReason = "";
         }
       }
 
