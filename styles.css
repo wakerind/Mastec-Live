@@ -293,6 +293,13 @@ button:hover {
   color: var(--muted);
 }
 
+.demo-login-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
 .error-text {
   min-height: 1.2em;
   margin: 12px 0 0;
@@ -560,7 +567,7 @@ button:hover {
 
 .stage-column {
   display: grid;
-  gap: 12px;
+  gap: 8px;
   min-height: 420px;
 }
 
@@ -572,7 +579,7 @@ button:hover {
 
 .stage-column-body {
   min-height: 180px;
-  padding: 12px;
+  padding: 8px;
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.76);
   border: 1px dashed var(--line-strong);

@@ -59,6 +59,11 @@ Demo field login:
 - email: `crew1@fieldsight.local`
 - password: `Field123!`
 
+The login screen also includes:
+
+- `Use demo admin login`
+- `Use demo field login`
+
 ## Refresh commands
 
 Use these commands from `C:\Users\yguev\OneDrive\Projects\Mastec Live` when you want to save changes and refresh GitHub/Render.

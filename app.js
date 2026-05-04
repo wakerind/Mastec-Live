@@ -67,7 +67,8 @@
     jobDetailUpdates: document.getElementById("jobDetailUpdates"),
     jobDetailStageSelect: document.getElementById("jobDetailStageSelect"),
     jobDetailAssigneeSelect: document.getElementById("jobDetailAssigneeSelect"),
-    demoCreds: document.getElementById("demoCreds"),
+    demoAdminCreds: document.getElementById("demoAdminCreds"),
+    demoFieldCreds: document.getElementById("demoFieldCreds"),
     loginError: document.getElementById("loginError"),
     inviteError: document.getElementById("inviteError")
   };
@@ -233,6 +234,53 @@
 
   function getJobUpdates(jobId) {
     return appState.updatesByJob?.[jobId] || [];
+  }
+
+  function getJobWindow(job, overrides = {}) {
+    const startValue = overrides.scheduledStartAt || job.scheduledStartAt;
+    const start = new Date(startValue).getTime();
+    const plannedHours = Number(overrides.plannedHours ?? job.plannedHours ?? 0);
+    const durationMs = Math.max(plannedHours, 1) * 60 * 60 * 1000;
+    return {
+      start,
+      end: start + durationMs
+    };
+  }
+
+  function jobsOverlap(leftJob, rightJob, leftOverrides = {}, rightOverrides = {}) {
+    const left = getJobWindow(leftJob, leftOverrides);
+    const right = getJobWindow(rightJob, rightOverrides);
+    if (Number.isNaN(left.start) || Number.isNaN(right.start)) {
+      return false;
+    }
+    return left.start < right.end && right.start < left.end;
+  }
+
+  function getCrewScheduleConflicts(targetJob, crewName, overrides = {}) {
+    if (!crewName) {
+      return [];
+    }
+    return appState.jobs.filter((job) => {
+      if (String(job.id) === String(targetJob.id)) {
+        return false;
+      }
+      if ((job.assignedTo || "") !== crewName) {
+        return false;
+      }
+      if (["Completed", "Closed"].includes(getOperationalStatus(job))) {
+        return false;
+      }
+      return jobsOverlap(targetJob, job, overrides);
+    });
+  }
+
+  function getAvailableCrewsForJob(targetJob, overrides = {}) {
+    return appState.crews
+      .map((crew) => ({
+        ...crew,
+        conflicts: getCrewScheduleConflicts(targetJob, crew.name, overrides)
+      }))
+      .filter((crew) => crew.conflicts.length === 0);
   }
 
   function getLatestUpdate(jobId) {
@@ -568,11 +616,11 @@
             </tr>
             <tr class="sheet-action-row">
               <td><button class="sheet-inline-action" data-action="open-job" data-id="${job.id}">Open job</button></td>
-              <td>${!["Closed"].includes(lifecycle) ? `<button class="sheet-inline-action" data-action="advance-stage" data-id="${job.id}">Advance</button>` : ""}</td>
-              <td><button class="sheet-inline-action" data-action="${job.blockerReason ? "clear-blocker" : "add-blocker"}" data-id="${job.id}">${job.blockerReason ? "Clear blocker" : "Add blocker"}</button></td>
+              <td>${!["Completed", "Closed"].includes(lifecycle) ? `<button class="sheet-inline-action" data-action="assign-job" data-id="${job.id}">Assign to</button>` : ""}</td>
+              <td>${!["Completed", "Closed"].includes(lifecycle) ? `<button class="sheet-inline-action" data-action="assign-fast" data-id="${job.id}">Quick assign</button>` : ""}</td>
               <td><button class="sheet-inline-action" data-action="log-update" data-id="${job.id}">Add update</button></td>
               <td>${appState.session?.role === "admin" && !isAdminApproved(job) ? `<button class="sheet-inline-action" data-action="admin-signoff" data-id="${job.id}">Admin signoff</button>` : ""}</td>
-              <td>${!job.assignedTo ? `<button class="sheet-inline-action" data-action="assign-job" data-id="${job.id}">Assign</button>` : ""}</td>
+              <td><button class="sheet-inline-action" data-action="${job.blockerReason ? "clear-blocker" : "add-blocker"}" data-id="${job.id}">${job.blockerReason ? "Clear blocker" : "Add blocker"}</button></td>
               <td></td>
               <td></td>
               <td></td>
@@ -803,8 +851,12 @@
   }
 
   function openAssignDialog(jobId) {
+    const job = appState.jobs.find((item) => String(item.id) === String(jobId));
+    if (!job) {
+      return;
+    }
     elements.assignForm.elements.jobId.value = String(jobId);
-    fillAssigneeSelect(elements.assignCrewSelect, "");
+    fillAssigneeSelect(elements.assignCrewSelect, job.assignedTo, job);
     elements.assignDialog.showModal();
   }
 
@@ -815,10 +867,16 @@
     elements.updateDialog.showModal();
   }
 
-  function fillAssigneeSelect(selectElement, currentValue) {
+  function fillAssigneeSelect(selectElement, currentValue, job) {
+    const crewOptions = job
+      ? getAvailableCrewsForJob(job)
+      : appState.crews.map((crew) => ({ ...crew, conflicts: [] }));
     selectElement.innerHTML = [`<option value="">Unassigned</option>`]
-      .concat(appState.crews.map((crew) => `<option value="${crew.name}">${crew.name} | ${crew.available} available</option>`))
+      .concat(crewOptions.map((crew) => `<option value="${crew.name}">${crew.name} | ${crew.available} available</option>`))
       .join("");
+    if (currentValue && !crewOptions.some((crew) => crew.name === currentValue)) {
+      selectElement.innerHTML += `<option value="${currentValue}">${currentValue} | Schedule conflict</option>`;
+    }
     selectElement.value = currentValue || "";
   }
 
@@ -844,7 +902,7 @@
     `;
     elements.jobDetailStageSelect.innerHTML = editableLifecycleStages.map((stage) => `<option value="${stage}">${stage}</option>`).join("");
     elements.jobDetailStageSelect.value = mapUiStageToStoredStage(getLifecycleStage(job));
-    fillAssigneeSelect(elements.jobDetailAssigneeSelect, job.assignedTo);
+    fillAssigneeSelect(elements.jobDetailAssigneeSelect, job.assignedTo, job);
     elements.jobDetailForm.elements.scheduledStartAt.value = String(job.scheduledStartAt || "").slice(0, 16);
     elements.jobDetailForm.elements.priority.value = job.priority || "Medium";
     elements.jobDetailForm.elements.adminApproved.checked = isAdminApproved(job);
@@ -873,9 +931,16 @@
     }
 
     if (action === "assign-fast") {
-      const availableCrew = [...appState.crews].sort((a, b) => b.available - a.available).find((crew) => crew.available > 0);
+      const availableCrew = getAvailableCrewsForJob(job)
+        .sort((a, b) => {
+          if (b.available !== a.available) {
+            return b.available - a.available;
+          }
+          return a.assigned - b.assigned;
+        })
+        .find((crew) => crew.available > 0);
       if (!availableCrew) {
-        window.alert("No crews show available capacity right now.");
+        window.alert("No crews are currently available without a schedule conflict for this job.");
         return;
       }
       await updateJob(jobId, {
@@ -1084,6 +1149,15 @@
       const form = new FormData(elements.assignForm);
       const jobId = Number(form.get("jobId"));
       const assignedTo = String(form.get("assignedTo") || "");
+      const job = appState.jobs.find((item) => String(item.id) === String(jobId));
+      if (!job) {
+        return;
+      }
+      const conflicts = getCrewScheduleConflicts(job, assignedTo);
+      if (assignedTo && conflicts.length) {
+        window.alert(`That crew already has overlapping work scheduled: ${conflicts.map((conflict) => conflict.title).join(", ")}`);
+        return;
+      }
       await updateJob(jobId, {
         assignedTo,
         lifecycleStage: assignedTo ? "Assigned" : "Uploaded",
@@ -1124,9 +1198,14 @@
       elements.jobDetailDialog.close();
     });
 
-    elements.demoCreds.addEventListener("click", () => {
+    elements.demoAdminCreds.addEventListener("click", () => {
       elements.loginForm.elements.email.value = "admin@fieldsight.local";
       elements.loginForm.elements.password.value = "Admin123!";
+    });
+
+    elements.demoFieldCreds.addEventListener("click", () => {
+      elements.loginForm.elements.email.value = "crew1@fieldsight.local";
+      elements.loginForm.elements.password.value = "Field123!";
     });
 
     document.body.addEventListener("dragstart", (event) => {
