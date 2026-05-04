@@ -442,7 +442,7 @@ button:hover {
 }
 
 .kpi-chart {
-  padding: 14px 16px 10px;
+  padding: 12px 12px 10px;
   border-radius: 18px;
   background:
     linear-gradient(to top, rgba(100, 116, 139, 0.12) 1px, transparent 1px) 0 100% / 100% 25%,
@@ -450,54 +450,104 @@ button:hover {
   border: 1px solid var(--line);
 }
 
-.kpi-chart-bars {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(90px, 140px));
-  gap: 22px;
-  align-items: end;
-  justify-content: start;
-}
-
-.kpi-chart-column {
+.kpi-line-chart {
   display: grid;
   gap: 10px;
 }
 
-.kpi-chart-plot {
-  height: 170px;
-  display: flex;
-  align-items: end;
-  justify-content: center;
+.kpi-line-svg {
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
-.kpi-chart-bar {
-  width: 54px;
-  border-radius: 18px 18px 8px 8px;
-  min-height: 0;
-  box-shadow: inset 0 -1px 0 rgba(255,255,255,0.28);
+.kpi-grid-line {
+  stroke: rgba(100, 116, 139, 0.18);
+  stroke-width: 1;
 }
 
-.kpi-chart-bar.expected {
-  background: linear-gradient(180deg, rgba(37, 99, 235, 0.5), rgba(37, 99, 235, 0.88));
+.kpi-grid-label {
+  fill: #64748b;
+  font-size: 10px;
+  font-family: "Aptos", "Segoe UI", sans-serif;
 }
 
-.kpi-chart-bar.actual {
-  background: linear-gradient(180deg, #34d399, #0f766e);
+.kpi-line-path {
+  fill: none;
+  stroke-width: 2.5;
 }
 
-.kpi-chart-meta {
+.kpi-line-path.actual {
+  stroke: #0f766e;
+}
+
+.kpi-line-path.expected {
+  stroke: #2563eb;
+  stroke-dasharray: 5 4;
+}
+
+.kpi-line-dot {
+  stroke: #ffffff;
+  stroke-width: 1.5;
+}
+
+.kpi-line-dot.actual {
+  fill: #0f766e;
+}
+
+.kpi-line-dot.expected {
+  fill: #2563eb;
+}
+
+.kpi-line-labels {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.kpi-line-label {
+  text-align: center;
   display: grid;
   gap: 2px;
-  text-align: center;
 }
 
-.kpi-chart-meta strong {
+.kpi-line-label strong {
   font-family: "Bahnschrift", "Arial Narrow", sans-serif;
+  font-size: 0.92rem;
 }
 
-.kpi-chart-meta span {
+.kpi-line-label small,
+.kpi-line-label span {
   color: var(--muted);
-  font-size: 0.88rem;
+  font-size: 0.76rem;
+}
+
+.kpi-line-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.legend-swatch {
+  width: 18px;
+  height: 3px;
+  border-radius: 999px;
+}
+
+.legend-swatch.actual {
+  background: #0f766e;
+}
+
+.legend-swatch.expected {
+  background: #2563eb;
 }
 
 .inline-form {

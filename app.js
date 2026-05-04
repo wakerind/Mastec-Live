@@ -854,47 +854,85 @@
     return Number((valid.reduce((sum, value) => sum + value, 0) / valid.length).toFixed(2));
   }
 
-  function renderCycleLineChart(label, points) {
-    const values = points.map((point) => Number(point.value || 0));
-    const max = Math.max(...values, 1);
-    const width = 260;
-    const height = 92;
-    const leftPad = 10;
-    const rightPad = 10;
-    const topPad = 10;
-    const bottomPad = 18;
+  function buildCycleSeries({ assignmentHours, scheduleHours, completionHours, closeHours }) {
+    return [
+      { label: "Uploaded", value: 0 },
+      { label: "Assigned", value: Number(assignmentHours || 0) },
+      { label: "Scheduled", value: Number(scheduleHours || 0) },
+      { label: "Completed", value: Number(completionHours || 0) },
+      { label: "Closed", value: Number(closeHours || 0) }
+    ];
+  }
+
+  function computeCycleBaseline(rows) {
+    return {
+      assignmentHours: average(rows.map((row) => row.adminAssignmentHours)) || 0,
+      scheduleHours: average(rows.map((row) => row.assignedToScheduleHours)) || 0,
+      completionHours: average(rows.map((row) => row.expectedHours)) || 0,
+      closeHours: average(rows.map((row) => row.adminCloseHours)) || 0
+    };
+  }
+
+  function renderCycleLineChart(label, actualSeries, expectedSeries) {
+    const allValues = [...actualSeries, ...expectedSeries].map((point) => Number(point.value || 0));
+    const max = Math.max(...allValues, 1);
+    const width = 320;
+    const height = 170;
+    const leftPad = 34;
+    const rightPad = 12;
+    const topPad = 14;
+    const bottomPad = 38;
     const usableWidth = width - leftPad - rightPad;
     const usableHeight = height - topPad - bottomPad;
-    const chartPoints = points.map((point, index) => {
-      const x = leftPad + (usableWidth * index) / Math.max(points.length - 1, 1);
+
+    const buildPoints = (series) => series.map((point, index) => {
+      const x = leftPad + (usableWidth * index) / Math.max(series.length - 1, 1);
       const normalized = Number(point.value || 0) / max;
       const y = topPad + usableHeight - normalized * usableHeight;
       return {
         ...point,
         x,
         y,
-        display: typeof point.value === "number" ? `${point.value.toFixed(1)}h` : "n/a"
+        display: `${Number(point.value || 0).toFixed(1)}h`
       };
     });
-    const polyline = chartPoints.map((point) => `${point.x},${point.y}`).join(" ");
+
+    const actualPoints = buildPoints(actualSeries);
+    const expectedPoints = buildPoints(expectedSeries);
+    const actualPolyline = actualPoints.map((point) => `${point.x},${point.y}`).join(" ");
+    const expectedPolyline = expectedPoints.map((point) => `${point.x},${point.y}`).join(" ");
+    const yTicks = [0, max / 2, max].map((value) => Number(value.toFixed(1)));
+
     return `
       <div class="kpi-chart-card">
         <div class="kpi-bar-label">
           <strong>${label}</strong>
-          <span class="muted">Cycle time in hours by workflow step</span>
+          <span class="muted">Actual vs expected hours by workflow stage</span>
         </div>
         <div class="kpi-line-chart">
           <svg viewBox="0 0 ${width} ${height}" class="kpi-line-svg" aria-hidden="true">
-            <polyline class="kpi-line-path" points="${polyline}"></polyline>
-            ${chartPoints.map((point) => `<circle class="kpi-line-dot" cx="${point.x}" cy="${point.y}" r="4"></circle>`).join("")}
+            ${yTicks.map((tick) => {
+              const y = topPad + usableHeight - (tick / max) * usableHeight;
+              return `<line class="kpi-grid-line" x1="${leftPad}" y1="${y}" x2="${width - rightPad}" y2="${y}"></line>
+                <text class="kpi-grid-label" x="2" y="${y + 4}">${tick.toFixed(1)}h</text>`;
+            }).join("")}
+            <polyline class="kpi-line-path expected" points="${expectedPolyline}"></polyline>
+            <polyline class="kpi-line-path actual" points="${actualPolyline}"></polyline>
+            ${expectedPoints.map((point) => `<circle class="kpi-line-dot expected" cx="${point.x}" cy="${point.y}" r="3.5"></circle>`).join("")}
+            ${actualPoints.map((point) => `<circle class="kpi-line-dot actual" cx="${point.x}" cy="${point.y}" r="4"></circle>`).join("")}
           </svg>
           <div class="kpi-line-labels">
-            ${chartPoints.map((point) => `
+            ${actualPoints.map((point, index) => `
               <div class="kpi-line-label">
                 <strong>${point.display}</strong>
+                <small>Expected ${expectedPoints[index].display}</small>
                 <span>${point.label}</span>
               </div>
             `).join("")}
+          </div>
+          <div class="kpi-line-legend">
+            <span class="legend-item"><span class="legend-swatch actual"></span>Actual</span>
+            <span class="legend-item"><span class="legend-swatch expected"></span>Expected</span>
           </div>
         </div>
       </div>
@@ -906,6 +944,7 @@
       const haystack = `${row.title} ${row.assignedTo} ${row.market}`.toLowerCase();
       return matchesTimeframe(row.latestStageAt, timeframe) && (!query || haystack.includes(query));
     });
+    const poolBaseline = computeCycleBaseline(cycleRows);
 
     if (group === "jobs") {
       elements.kpiList.innerHTML = cycleRows.length ? cycleRows.map((row) => `
@@ -919,13 +958,16 @@
             <span class="pill">${row.status}</span>
             <span class="pill">Last move ${formatDateTime(row.latestStageAt)}</span>
           </div>
-          ${renderCycleLineChart("Cycle timing", [
-            { label: "Uploaded", value: row.adminAssignmentHours || 0 },
-            { label: "Assigned", value: row.assignedToScheduleHours || 0 },
-            { label: "Scheduled", value: row.fieldExecutionHours || 0 },
-            { label: "Completed", value: row.adminCloseHours || 0 },
-            { label: "Closed", value: row.closedLoopHours || 0 }
-          ])}
+          ${renderCycleLineChart(
+            "Cycle timing",
+            buildCycleSeries({
+              assignmentHours: row.adminAssignmentHours,
+              scheduleHours: row.assignedToScheduleHours,
+              completionHours: row.fieldExecutionHours,
+              closeHours: row.adminCloseHours
+            }),
+            buildCycleSeries(poolBaseline)
+          )}
           <div class="kpi-row">
             <span class="pill">Admin assignment: ${row.adminAssignmentHours ?? "n/a"}h</span>
             <span class="pill">Team accept/schedule: ${row.assignedToScheduleHours ?? "n/a"}h</span>
@@ -975,13 +1017,16 @@
             ${summary ? `<span class="pill">Blocked: ${summary.blockedRate}%</span>` : ""}
             ${summary ? `<span class="pill">Margin/job: ${formatCurrency(summary.avgMargin)}</span>` : ""}
           </div>
-          ${renderCycleLineChart("Cycle timing average", [
-            { label: "Uploaded", value: row.avgAdminAssignmentHours || 0 },
-            { label: "Assigned", value: row.avgAssignedToScheduleHours || 0 },
-            { label: "Scheduled", value: row.avgFieldExecutionHours || 0 },
-            { label: "Completed", value: row.avgAdminCloseHours || 0 },
-            { label: "Closed", value: row.avgClosedLoopHours || 0 }
-          ])}
+          ${renderCycleLineChart(
+            "Cycle timing average",
+            buildCycleSeries({
+              assignmentHours: row.avgAdminAssignmentHours,
+              scheduleHours: row.avgAssignedToScheduleHours,
+              completionHours: row.avgFieldExecutionHours,
+              closeHours: row.avgAdminCloseHours
+            }),
+            buildCycleSeries(poolBaseline)
+          )}
           <div class="kpi-row">
             <span class="pill">Admin assignment: ${row.avgAdminAssignmentHours ?? "n/a"}h</span>
             <span class="pill">Team accept/schedule: ${row.avgAssignedToScheduleHours ?? "n/a"}h</span>
