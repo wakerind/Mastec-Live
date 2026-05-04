@@ -14,10 +14,10 @@ export const seedUsers = [
 ];
 
 export const seedCrews = [
-  ["MasTec East Fiber Crew", "Internal team", 9, "Fiber backbone and splice crew with overnight flexibility."],
-  ["Summit Civil Group", "Contractor", 6, "Civil bore and conduit partner for metro builds."],
-  ["Axis Wireless Build", "Contractor", 7, "OSP and small-cell crew with testing coverage."],
-  ["Desert Peak Services", "Contractor", 3, "Maintenance crew used for closeout and overflow support."]
+  ["MasTec East Fiber Crew", "Internal team", 9, "Fiber backbone and splice crew with overnight flexibility.", "Jordan Reyes", "jordan.reyes@fieldsight.local", "(305) 555-0142", "Southeast fiber markets"],
+  ["Summit Civil Group", "Contractor", 6, "Civil bore and conduit partner for metro builds.", "Alicia Benton", "dispatch@summitcivil.example", "(404) 555-0118", "Georgia and Gulf trenching work"],
+  ["Axis Wireless Build", "Contractor", 7, "OSP and small-cell crew with testing coverage.", "Marcus Hale", "ops@axiswireless.example", "(214) 555-0176", "Texas small-cell and OSP coverage"],
+  ["Desert Peak Services", "Contractor", 3, "Maintenance crew used for closeout and overflow support.", "Tina Brooks", "service@desertpeak.example", "(602) 555-0131", "Arizona maintenance and tower support"]
 ];
 
 export const seedJobs = [

@@ -93,7 +93,7 @@ function hydrateLegacyJobData(db) {
 }
 
 function listCrewsWithUtilization(db) {
-  const crews = db.prepare("SELECT id, name, type, capacity, note FROM crews ORDER BY name").all();
+  const crews = db.prepare("SELECT id, name, type, capacity, note, contact_name, contact_email, contact_phone, coverage_area FROM crews ORDER BY name").all();
   const activeAssignments = db.prepare(`
     SELECT assigned_to, COUNT(*) AS assigned
     FROM jobs
@@ -112,7 +112,11 @@ function listCrewsWithUtilization(db) {
       assigned,
       available: Math.max(crew.capacity - assigned, 0),
       utilization: Math.round((assigned / crew.capacity) * 100),
-      note: crew.note
+      note: crew.note,
+      contactName: crew.contact_name,
+      contactEmail: crew.contact_email,
+      contactPhone: crew.contact_phone,
+      coverageArea: crew.coverage_area
     };
   });
 }
@@ -157,7 +161,11 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       name TEXT NOT NULL UNIQUE,
       type TEXT NOT NULL,
       capacity INTEGER NOT NULL,
-      note TEXT NOT NULL
+      note TEXT NOT NULL,
+      contact_name TEXT NOT NULL DEFAULT '',
+      contact_email TEXT NOT NULL DEFAULT '',
+      contact_phone TEXT NOT NULL DEFAULT '',
+      coverage_area TEXT NOT NULL DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS jobs (
@@ -224,6 +232,10 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN accepted_at TEXT");
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN started_at TEXT");
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN admin_reviewed_at TEXT");
+  addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN contact_name TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN contact_email TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN contact_phone TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN coverage_area TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN attachment_name TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN attachment_path TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN attachment_mime TEXT NOT NULL DEFAULT ''");
@@ -242,7 +254,7 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
 
   const crewCount = db.prepare("SELECT COUNT(*) AS count FROM crews").get().count;
   if (!crewCount) {
-    const insertCrew = db.prepare("INSERT INTO crews (name, type, capacity, note) VALUES (?, ?, ?, ?)");
+    const insertCrew = db.prepare("INSERT INTO crews (name, type, capacity, note, contact_name, contact_email, contact_phone, coverage_area) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
     seedCrews.forEach((crew) => insertCrew.run(...crew));
   }
 

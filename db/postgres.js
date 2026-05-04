@@ -87,6 +87,10 @@ async function ensureJobColumns(pool) {
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS admin_reviewed_at TIMESTAMPTZ");
+  await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS contact_name TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS contact_email TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS contact_phone TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS coverage_area TEXT NOT NULL DEFAULT ''");
 }
 
 export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso, rootDir }) {
@@ -114,7 +118,7 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
   const crewCount = Number((await pool.query("SELECT COUNT(*)::int AS count FROM crews")).rows[0].count);
   if (!crewCount) {
     for (const crew of seedCrews) {
-      await pool.query("INSERT INTO crews (name, type, capacity, note) VALUES ($1, $2, $3, $4)", crew);
+      await pool.query("INSERT INTO crews (name, type, capacity, note, contact_name, contact_email, contact_phone, coverage_area) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)", crew);
     }
   }
 
@@ -167,7 +171,7 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
   }
 
   async function listCrewsWithUtilization() {
-    const crews = (await pool.query("SELECT id, name, type, capacity, note FROM crews ORDER BY name")).rows;
+    const crews = (await pool.query("SELECT id, name, type, capacity, note, contact_name AS \"contactName\", contact_email AS \"contactEmail\", contact_phone AS \"contactPhone\", coverage_area AS \"coverageArea\" FROM crews ORDER BY name")).rows;
     const assignments = (await pool.query(`
       SELECT assigned_to AS "assignedTo", COUNT(*)::int AS assigned
       FROM jobs
