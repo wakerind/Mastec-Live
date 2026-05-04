@@ -53,16 +53,21 @@ button:hover {
 .app-shell {
   display: grid;
   grid-template-columns: 300px 1fr;
+  align-items: start;
   min-height: 100vh;
 }
 
 .sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
   padding: 28px;
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(15, 118, 110, 0.96) 100%);
   color: #eff6ff;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 20px;
+  overflow-y: auto;
 }
 
 .brand {
@@ -124,21 +129,15 @@ button:hover {
 }
 
 .sidebar-panel {
-  margin-top: auto;
-  padding: 18px;
+  margin-top: 8px;
+  padding: 14px 16px;
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.1);
 }
 
 .session-card {
   display: grid;
-  gap: 10px;
-}
-
-.sidebar-panel ul {
-  margin: 12px 0 0;
-  padding-left: 18px;
-  color: rgba(245, 239, 230, 0.88);
+  gap: 8px;
 }
 
 .main-content {
@@ -567,7 +566,9 @@ button:hover {
 
 .stage-column {
   display: grid;
+  align-content: start;
   gap: 8px;
+  grid-template-rows: auto 1fr;
   min-height: 420px;
 }
 
@@ -579,7 +580,7 @@ button:hover {
 
 .stage-column-body {
   min-height: 180px;
-  padding: 8px;
+  padding: 0;
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.76);
   border: 1px dashed var(--line-strong);
@@ -643,7 +644,7 @@ button:hover {
 }
 
 .empty-stage {
-  padding: 2px 0 0;
+  padding: 12px 14px;
   border-radius: 16px;
   text-align: left;
   align-self: start;
@@ -914,6 +915,12 @@ dialog::backdrop {
 @media (max-width: 1120px) {
   .app-shell {
     grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    overflow: visible;
   }
 
   .metric-grid,
