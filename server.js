@@ -494,13 +494,15 @@ const server = http.createServer(async (req, res) => {
 
       if (body.accepted === true && next.assignedTo) {
         next.acceptedAt = next.acceptedAt || nowIso();
-        if (next.scheduledStartAt) {
+        if (next.scheduledStartAt && !["Completed", "Closed"].includes(next.lifecycleStage)) {
           next.lifecycleStage = "Scheduled";
         }
       }
       if (body.started === true) {
         next.startedAt = next.startedAt || nowIso();
-        next.lifecycleStage = "In Progress";
+        if (!["Completed", "Closed"].includes(next.lifecycleStage)) {
+          next.lifecycleStage = "In Progress";
+        }
       }
       if (body.resetStarted === true) {
         next.startedAt = null;

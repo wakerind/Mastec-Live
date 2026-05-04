@@ -676,6 +676,7 @@
                   <div class="board-card-top">
                     <div>
                       <h4>${job.title}</h4>
+                      <p class="board-card-status">${getOperationalStatus(job)}</p>
                     </div>
                   </div>
                   <div class="job-actions compact-actions">
@@ -1063,6 +1064,10 @@
         accepted: true,
         issue: "Field crew marked the job complete."
       });
+      if (elements.jobDetailDialog.open) {
+        elements.jobDetailDialog.close();
+      }
+      window.alert("Job was completed.");
       return;
     }
 
