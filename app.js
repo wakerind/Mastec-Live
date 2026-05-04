@@ -174,7 +174,7 @@
       return [];
     }
     return appState.session.role === "field"
-      ? ["overview", "field"]
+      ? ["overview", "admin", "assignment", "field"]
       : ["overview", "admin", "assignment", "accounts", "leadership"];
   }
 
@@ -209,6 +209,10 @@
       payload.completion = 100;
     }
     return payload;
+  }
+
+  function canFieldComplete(job) {
+    return appState.session?.role === "field" && ["Scheduled", "Not Started", "In Progress"].includes(getOperationalStatus(job));
   }
 
   function buildRequirementBadges(job) {
@@ -621,12 +625,12 @@
               <td><button class="sheet-inline-action" data-action="log-update" data-id="${job.id}">Add update</button></td>
               <td>${appState.session?.role === "admin" && !isAdminApproved(job) ? `<button class="sheet-inline-action" data-action="admin-signoff" data-id="${job.id}">Admin signoff</button>` : ""}</td>
               <td><button class="sheet-inline-action" data-action="${job.blockerReason ? "clear-blocker" : "add-blocker"}" data-id="${job.id}">${job.blockerReason ? "Clear blocker" : "Add blocker"}</button></td>
+              <td>${canFieldComplete(job) ? `<button class="sheet-inline-action" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}</td>
               <td></td>
               <td></td>
               <td></td>
-              <td></td>
-              <td></td>
-              <td></td>
+              <td>${appState.session?.role === "admin" && getLifecycleStage(job) === "Completed" && !isAdminReviewed(job) ? `<button class="sheet-inline-action" data-action="review-job" data-id="${job.id}">Admin review</button>` : ""}</td>
+              <td>${appState.session?.role === "admin" && getLifecycleStage(job) === "Completed" && isAdminReviewed(job) ? `<button class="sheet-inline-action" data-action="close-job" data-id="${job.id}">Close job</button>` : ""}</td>
             </tr>
           `;}).join("")}
         </tbody>
@@ -709,7 +713,7 @@
           ${["Scheduled", "Not Started"].includes(getOperationalStatus(job)) && !hasStarted(job)
             ? `<button class="action-btn" data-action="start-job" data-id="${job.id}">Start job</button>`
             : ""}
-          <button class="action-btn" data-action="advance-stage" data-id="${job.id}">Advance stage</button>
+          ${canFieldComplete(job) ? `<button class="action-btn" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}
           <button class="action-btn" data-action="update-hours" data-id="${job.id}">Log hours</button>
           <button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>
           ${job.blockerReason
@@ -998,6 +1002,33 @@
         started: true,
         lifecycleStage: "In Progress",
         issue: "Field crew started the job."
+      });
+      return;
+    }
+
+    if (action === "complete-job") {
+      await updateJob(jobId, {
+        lifecycleStage: "Completed",
+        completion: 100,
+        started: true,
+        issue: "Field crew marked the job complete."
+      });
+      return;
+    }
+
+    if (action === "review-job") {
+      await updateJob(jobId, {
+        adminReviewed: true,
+        lifecycleStage: "Completed",
+        issue: "Admin review completed."
+      });
+      return;
+    }
+
+    if (action === "close-job") {
+      await updateJob(jobId, {
+        lifecycleStage: "Closed",
+        issue: "Job closed after admin review."
       });
       return;
     }
