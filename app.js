@@ -954,6 +954,23 @@
     elements.jobDetailDialog.showModal();
   }
 
+  function refreshJobDetailAssignees() {
+    if (!elements.jobDetailDialog.open || appState.session?.role !== "admin") {
+      return;
+    }
+    const jobId = Number(elements.jobDetailForm.elements.jobId.value || 0);
+    const job = appState.jobs.find((item) => Number(item.id) === jobId);
+    if (!job) {
+      return;
+    }
+    const overrideStart = elements.jobDetailForm.elements.scheduledStartAt.value;
+    const currentAssignee = elements.jobDetailAssigneeSelect.value || job.assignedTo;
+    fillAssigneeSelect(elements.jobDetailAssigneeSelect, currentAssignee, {
+      ...job,
+      scheduledStartAt: overrideStart || job.scheduledStartAt
+    });
+  }
+
   async function handleActionClick(event) {
     const actionButton = event.target.closest("[data-action]");
     if (!actionButton) {
@@ -1246,6 +1263,9 @@
       });
       elements.jobDetailDialog.close();
     });
+
+    elements.jobDetailForm.elements.scheduledStartAt.addEventListener("input", refreshJobDetailAssignees);
+    elements.jobDetailForm.elements.scheduledStartAt.addEventListener("change", refreshJobDetailAssignees);
 
     elements.demoAdminCreds.addEventListener("click", () => {
       elements.loginForm.elements.email.value = "admin@fieldsight.local";

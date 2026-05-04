@@ -524,7 +524,7 @@ const server = http.createServer(async (req, res) => {
         next.lifecycleStage = "Assigned";
       }
 
-      if (next.assignedTo && next.acceptedAt) {
+      if (!["Completed", "Closed"].includes(next.lifecycleStage) && next.assignedTo && next.acceptedAt) {
         if (next.startedAt) {
           next.lifecycleStage = "In Progress";
         } else if (isScheduledPastDue(next.scheduledStartAt)) {
@@ -550,6 +550,14 @@ const server = http.createServer(async (req, res) => {
 
       if (next.lifecycleStage === "Scheduled" && next.startedAt) {
         next.lifecycleStage = "In Progress";
+      }
+
+      if (user.role === "field" && next.lifecycleStage === "Completed") {
+        const existingUpdates = await db.listJobUpdates([jobId]);
+        if (!existingUpdates.length) {
+          sendJson(res, 400, { error: "Add at least one update before completing the job." });
+          return;
+        }
       }
 
       if (next.lifecycleStage === "Closed" && !next.adminReviewedAt) {
