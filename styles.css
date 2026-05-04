@@ -392,12 +392,18 @@ button:hover {
 .filters input,
 .filters select,
 .dialog-card input,
-.dialog-card select {
+.dialog-card select,
+.dialog-card textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 12px 14px;
   background: white;
+}
+
+.dialog-card textarea {
+  resize: vertical;
+  min-height: 120px;
 }
 
 .job-card,

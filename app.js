@@ -62,6 +62,10 @@
     updateForm: document.getElementById("updateForm"),
     closeUpdateDialog: document.getElementById("closeUpdateDialog"),
     cancelUpdateDialog: document.getElementById("cancelUpdateDialog"),
+    rejectDialog: document.getElementById("rejectDialog"),
+    rejectForm: document.getElementById("rejectForm"),
+    closeRejectDialog: document.getElementById("closeRejectDialog"),
+    rejectError: document.getElementById("rejectError"),
     jobDetailDialog: document.getElementById("jobDetailDialog"),
     jobDetailForm: document.getElementById("jobDetailForm"),
     closeJobDetailDialog: document.getElementById("closeJobDetailDialog"),
@@ -1143,6 +1147,14 @@
     elements.updateDialog.showModal();
   }
 
+  function openRejectDialog(jobId, currentReason = "") {
+    elements.rejectForm.elements.jobId.value = String(jobId);
+    elements.rejectForm.elements.reason.value = currentReason;
+    elements.rejectError.textContent = "";
+    elements.rejectDialog.showModal();
+    elements.rejectForm.elements.reason.focus();
+  }
+
   function fillAssigneeSelect(selectElement, currentValue, job) {
     const allCrewOptions = job
       ? appState.crews.map((crew) => ({
@@ -1327,22 +1339,7 @@
     }
 
     if (action === "reject-job") {
-      const rejectionReason = window.prompt("Why is the team rejecting this job?", job.rejectionReason || "");
-      if (rejectionReason === null) {
-        return;
-      }
-      if (!String(rejectionReason).trim()) {
-        window.alert("A rejection reason is required.");
-        return;
-      }
-      await updateJob(jobId, {
-        rejected: true,
-        rejectionReason: String(rejectionReason).trim(),
-        issue: rejectionReason
-          ? `Rejected by field team: ${rejectionReason}`
-          : "Rejected by field team for immediate admin review."
-      });
-      window.alert("Job was rejected and returned for immediate admin review.");
+      openRejectDialog(jobId, job.rejectionReason || "");
       return;
     }
 
@@ -1466,8 +1463,18 @@
     elements.cancelAssignDialog.addEventListener("click", () => elements.assignDialog.close());
     elements.closeUpdateDialog.addEventListener("click", () => elements.updateDialog.close());
     elements.cancelUpdateDialog.addEventListener("click", () => elements.updateDialog.close());
+    elements.closeRejectDialog.addEventListener("click", () => {
+      elements.rejectError.textContent = "A reason is required.";
+      elements.rejectForm.elements.reason.focus();
+    });
     elements.closeJobDetailDialog.addEventListener("click", () => elements.jobDetailDialog.close());
     elements.cancelJobDetailDialog.addEventListener("click", () => elements.jobDetailDialog.close());
+
+    elements.rejectDialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      elements.rejectError.textContent = "A reason is required.";
+      elements.rejectForm.elements.reason.focus();
+    });
 
     elements.jobForm.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -1545,6 +1552,26 @@
       });
       elements.updateDialog.close();
       await refreshApp();
+    });
+
+    elements.rejectForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = new FormData(elements.rejectForm);
+      const jobId = Number(form.get("jobId"));
+      const rejectionReason = String(form.get("reason") || "").trim();
+      if (!rejectionReason) {
+        elements.rejectError.textContent = "A reason is required.";
+        elements.rejectForm.elements.reason.focus();
+        return;
+      }
+      elements.rejectError.textContent = "";
+      await updateJob(jobId, {
+        rejected: true,
+        rejectionReason,
+        issue: `Rejected by field team: ${rejectionReason}`
+      });
+      elements.rejectDialog.close();
+      window.alert("Job was rejected and returned for immediate admin review.");
     });
 
     elements.jobDetailForm.addEventListener("submit", async (event) => {

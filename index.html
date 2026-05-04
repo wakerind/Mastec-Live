@@ -338,6 +338,25 @@
     </form>
   </dialog>
 
+  <dialog id="rejectDialog">
+    <form class="dialog-card" id="rejectForm">
+      <div class="dialog-header">
+        <h3>Reject job</h3>
+        <button class="icon-btn" type="button" id="closeRejectDialog" aria-label="Close">x</button>
+      </div>
+      <input type="hidden" name="jobId">
+      <div class="dialog-grid">
+        <label class="span-2">Reason for rejection
+          <textarea name="reason" rows="5" placeholder="Explain why this job is being rejected."></textarea>
+          <p class="error-text" id="rejectError"></p>
+        </label>
+      </div>
+      <menu class="dialog-actions">
+        <button class="primary-btn" type="submit">Reject job</button>
+      </menu>
+    </form>
+  </dialog>
+
   <dialog id="jobDetailDialog">
     <form class="dialog-card dialog-card-lg" id="jobDetailForm">
       <div class="dialog-header">
