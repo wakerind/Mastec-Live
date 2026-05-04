@@ -134,6 +134,18 @@
     return query ? `https://www.google.com/maps/search/?api=1&query=${query}` : "";
   }
 
+  function hoursBetween(startValue, endValue) {
+    if (!startValue || !endValue) {
+      return null;
+    }
+    const start = new Date(startValue).getTime();
+    const end = new Date(endValue).getTime();
+    if (Number.isNaN(start) || Number.isNaN(end)) {
+      return null;
+    }
+    return Number(((end - start) / (1000 * 60 * 60)).toFixed(2));
+  }
+
   function hoursUntil(value) {
     return Math.round((new Date(value).getTime() - Date.now()) / (1000 * 60 * 60));
   }
@@ -205,6 +217,10 @@
     return Boolean(job.startedAt || ["In Progress", "Completed", "Admin Reviewed", "Closed"].includes(getStoredLifecycleStage(job)));
   }
 
+  function hasDispatched(job) {
+    return Boolean(job.dispatchedAt || hasStarted(job));
+  }
+
   function isAdminReviewed(job) {
     return Boolean(job.adminReviewedAt || ["Admin Reviewed", "Closed"].includes(getStoredLifecycleStage(job)));
   }
@@ -268,7 +284,15 @@
   function canFieldStart(job) {
     return appState.session?.role === "field"
       && isAccepted(job)
+      && hasDispatched(job)
       && !hasStarted(job)
+      && ["Scheduled", "Not Started"].includes(getOperationalStatus(job));
+  }
+
+  function canFieldDispatch(job) {
+    return appState.session?.role === "field"
+      && isAccepted(job)
+      && !hasDispatched(job)
       && ["Scheduled", "Not Started"].includes(getOperationalStatus(job));
   }
 
@@ -492,6 +516,8 @@
           teamName: job.assignedTo || "",
           dispatcherName: job.dispatcherName || "",
           dispatcherPhone: job.dispatcherPhone || "",
+          dueAt: job.dueAt || "",
+          assignmentAt: job.assignmentAt || "",
           currentCycle: getLifecycleStage(job),
           currentStatus: getOperationalStatus(job),
           lastProcessedCycle: stage,
@@ -510,6 +536,7 @@
           rejectionReason: job.rejectionReason || "",
           adminApprovedAt: job.adminApprovedAt || "",
           acceptedAt: job.acceptedAt || "",
+          dispatchedAt: job.dispatchedAt || "",
           startedAt: job.startedAt || "",
           completedAt: job.completedAt || "",
           adminReviewedAt: job.adminReviewedAt || "",
@@ -544,6 +571,8 @@
       "teamName",
       "dispatcherName",
       "dispatcherPhone",
+      "dueAt",
+      "assignmentAt",
       "currentCycle",
       "currentStatus",
       "lastProcessedCycle",
@@ -562,6 +591,7 @@
       "rejectionReason",
       "adminApprovedAt",
       "acceptedAt",
+      "dispatchedAt",
       "startedAt",
       "completedAt",
       "adminReviewedAt",
@@ -622,6 +652,7 @@
         lastUpdateNote: [summarizeUpdate(leftUpdate), summarizeUpdate(rightUpdate)],
         assignedTo: [left.assignedTo || "", right.assignedTo || ""],
         scheduledStartAt: [new Date(left.scheduledStartAt).getTime(), new Date(right.scheduledStartAt).getTime()],
+        dueAt: [new Date(left.dueAt || left.scheduledStartAt).getTime(), new Date(right.dueAt || right.scheduledStartAt).getTime()],
         jobValue: [Number(left.jobValue || 0), Number(right.jobValue || 0)],
         laborCost: [Number(left.laborCost || 0), Number(right.laborCost || 0)],
         plannedHours: [Number(left.plannedHours || 0), Number(right.plannedHours || 0)],
@@ -856,16 +887,26 @@
   function renderMetrics() {
     const jobs = appState.jobs;
     const assigned = jobs.filter((job) => ["Assigned", "Scheduled", "In Progress"].includes(getLifecycleStage(job))).length;
-    const blocked = jobs.filter((job) => Boolean(job.blockerReason)).length;
+    const dueRisk = jobs.filter((job) => !["Completed", "Closed"].includes(getLifecycleStage(job)) && job.dueAt && new Date(job.dueAt).getTime() < Date.now()).length;
+    const lateDispatch = jobs.filter((job) => {
+      if (!job.dispatchedAt || !job.scheduledStartAt) {
+        return false;
+      }
+      return new Date(job.dispatchedAt).getTime() > new Date(job.scheduledStartAt).getTime();
+    }).length;
     const closed = jobs.filter((job) => getLifecycleStage(job) === "Closed").length;
-    const totalValue = jobs.reduce((sum, job) => sum + Number(job.jobValue || 0), 0);
-    const margin = jobs.reduce((sum, job) => sum + getMargin(job), 0);
+    const dispatchLagHours = jobs
+      .map((job) => hoursBetween(job.scheduledStartAt, job.dispatchedAt))
+      .filter((value) => typeof value === "number" && value >= 0);
+    const avgDispatchLag = dispatchLagHours.length
+      ? Number((dispatchLagHours.reduce((sum, value) => sum + value, 0) / dispatchLagHours.length).toFixed(2))
+      : 0;
 
     elements.metricGrid.innerHTML = [
       { label: "Tracked jobs", value: jobs.length, note: "Across upload, assignment, field execution, closeout, and history" },
       { label: "Assigned jobs", value: assigned, note: "Visible by team or contractor for dispatching" },
-      { label: "Blocked jobs", value: blocked, note: "Active jobs with permit, staffing, access, or material blockers" },
-      { label: "Closed jobs", value: closed, note: `${formatCurrency(totalValue)} in tracked value and ${formatCurrency(margin)} estimated margin` }
+      { label: "SLA risk", value: dueRisk, note: "Active jobs now past the due date and at risk against SLA" },
+      { label: "Dispatch efficiency", value: `${avgDispatchLag}h`, note: `${lateDispatch} jobs dispatched after the scheduled time | ${closed} closed jobs` }
     ].map((metric) => `
       <article class="metric-card">
         <p class="eyebrow">${metric.label}</p>
@@ -898,7 +939,7 @@
             <span class="pill">${job.jobType}</span>
             <span class="pill">${job.assignedTo || "Unassigned"}</span>
           </div>
-          <p class="muted">Starts ${formatDateTime(job.scheduledStartAt)} | ${formatCurrency(job.jobValue)}</p>
+          <p class="muted">Schedule ${formatDateTime(job.scheduledStartAt)} | Due ${formatDateTime(job.dueAt || job.scheduledStartAt)}</p>
         </article>
       `;
     }).join("") : emptyState("No jobs available.");
@@ -933,11 +974,11 @@
 
   function renderDashboardShortcuts() {
     const activeJobs = appState.jobs.filter((job) => !["Completed", "Closed"].includes(getLifecycleStage(job))).length;
-    const readyToStart = appState.jobs.filter((job) => ["Scheduled", "Not Started"].includes(getOperationalStatus(job)) && isAccepted(job) && !hasStarted(job)).length;
+    const readyToDispatch = appState.jobs.filter((job) => canFieldDispatch(job)).length;
     const readyToClose = appState.jobs.filter((job) => getLifecycleStage(job) === "Completed").length;
     const shortcuts = [
       { label: "Dispatch jobs", note: `${activeJobs} active jobs in circulation`, screen: "admin" },
-      { label: "Start-ready crews", note: `${readyToStart} scheduled jobs waiting on crew start`, screen: "field" },
+      { label: "Dispatch-ready crews", note: `${readyToDispatch} scheduled jobs waiting on morning dispatch`, screen: "field" },
       { label: "Closeout queue", note: `${readyToClose} jobs waiting on final review`, screen: "history" }
     ];
     elements.dashboardShortcuts.innerHTML = shortcuts.map((shortcut) => `
@@ -1014,6 +1055,7 @@
             <th>${renderSortableHeader("Last Update", "lastUpdatedAt")}</th>
             <th>${renderSortableHeader("Assigned", "assignedTo")}</th>
             <th>${renderSortableHeader("Start", "scheduledStartAt")}</th>
+            <th>${renderSortableHeader("Due", "dueAt")}</th>
             <th>${renderSortableHeader("Value", "jobValue")}</th>
             <th>${renderSortableHeader("Labor", "laborCost")}</th>
             <th>${renderSortableHeader("Planned", "plannedHours")}</th>
@@ -1048,6 +1090,7 @@
               </td>
               <td>${job.assignedTo || "Unassigned"}<div class="sheet-substatus">${job.dispatcherName || "No dispatcher listed"}</div></td>
               <td>${formatDateTime(job.scheduledStartAt)}</td>
+              <td>${formatDateTime(job.dueAt || job.scheduledStartAt)}</td>
               <td>${formatCurrency(job.jobValue)}</td>
               <td>${formatCurrency(job.laborCost)}</td>
               <td>${Number(job.plannedHours || 0)}h</td>
@@ -1061,7 +1104,9 @@
               <td><button class="sheet-inline-action" data-action="log-update" data-id="${job.id}">Add update</button></td>
               <td>${appState.session?.role === "admin" && !isAdminApproved(job) ? `<button class="sheet-inline-action" data-action="admin-signoff" data-id="${job.id}">Admin signoff</button>` : ""}</td>
               <td><button class="sheet-inline-action" data-action="${job.blockerReason ? "clear-blocker" : "add-blocker"}" data-id="${job.id}">${job.blockerReason ? "Clear blocker" : "Add blocker"}</button></td>
+              <td>${canFieldDispatch(job) ? `<button class="sheet-inline-action" data-action="dispatch-job" data-id="${job.id}">Dispatch</button>` : ""}</td>
               <td>${canFieldStart(job) ? `<button class="sheet-inline-action" data-action="start-job" data-id="${job.id}">Start job</button>` : canFieldComplete(job) ? `<button class="sheet-inline-action" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}</td>
+              <td></td>
               <td></td>
               <td></td>
               <td></td>
@@ -1151,7 +1196,8 @@
         <div class="job-tags">
           <span class="pill">${job.jobType}</span>
           <span class="pill">${job.jobAddress || job.market}</span>
-          <span class="pill">Start ${formatDateTime(job.scheduledStartAt)}</span>
+          <span class="pill">Schedule ${formatDateTime(job.scheduledStartAt)}</span>
+          <span class="pill">Due ${formatDateTime(job.dueAt || job.scheduledStartAt)}</span>
           <span class="pill">Planned ${Number(job.plannedHours || 0)}h</span>
           <span class="pill">Actual ${Number(job.actualHours || 0)}h</span>
         </div>
@@ -1160,12 +1206,14 @@
           <p class="muted">${job.completion}% complete | ${formatCurrency(job.jobValue)} value | ${formatCurrency(job.laborCost)} labor</p>
           <p class="muted">${job.blockerReason || job.issue}</p>
           <p class="muted">Dispatcher: ${job.dispatcherName || "Not listed"} | ${formatPhone(job.dispatcherPhone)}</p>
+          <p class="muted">Assignment: ${formatDateTime(job.assignmentAt || job.createdAt)} | Dispatch: ${job.dispatchedAt ? formatDateTime(job.dispatchedAt) : "Pending"} | Non-dispatch hours: ${hoursBetween(job.scheduledStartAt, job.dispatchedAt) ?? "n/a"}</p>
         </div>
         <div class="job-actions">
           <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
           ${getMapsUrl(job) ? `<a class="action-btn action-link" href="${getMapsUrl(job)}" target="_blank" rel="noreferrer">Open in Maps</a>` : ""}
           ${job.dispatcherPhone ? `<a class="action-btn action-link" href="tel:${job.dispatcherPhone}">Call dispatcher</a>` : ""}
           ${canFieldAccept(job) ? `<button class="action-btn" data-action="accept-job" data-id="${job.id}">Accept job</button>` : ""}
+          ${canFieldDispatch(job) ? `<button class="action-btn" data-action="dispatch-job" data-id="${job.id}">Dispatch</button>` : ""}
           ${canFieldStart(job) ? `<button class="action-btn" data-action="start-job" data-id="${job.id}">Start job</button>` : ""}
           ${canFieldReject(job) ? `<button class="action-btn" data-action="reject-job" data-id="${job.id}">Reject job</button>` : ""}
           ${canFieldComplete(job) ? `<button class="action-btn" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}
@@ -1407,6 +1455,7 @@
           <div class="kpi-row">
             <span class="pill">Admin assignment: ${row.adminAssignmentHours ?? "n/a"}h</span>
             <span class="pill">Team accept/schedule: ${row.assignedToScheduleHours ?? "n/a"}h</span>
+            <span class="pill">Non-dispatch: ${row.nonDispatchHours ?? "n/a"}h</span>
             <span class="pill">Field completion: ${row.fieldExecutionHours ?? "n/a"}h</span>
             <span class="pill">Admin close: ${row.adminCloseHours ?? "n/a"}h</span>
           </div>
@@ -1439,6 +1488,7 @@
       avgActualHours: average(rows.map((row) => row.actualHours)),
       avgAdminAssignmentHours: average(rows.map((row) => row.adminAssignmentHours)),
       avgAssignedToScheduleHours: average(rows.map((row) => row.assignedToScheduleHours)),
+      avgNonDispatchHours: average(rows.map((row) => row.nonDispatchHours)),
       avgFieldExecutionHours: average(rows.map((row) => row.fieldExecutionHours)),
       avgAdminCloseHours: average(rows.map((row) => row.adminCloseHours)),
       avgClosedLoopHours: average(rows.map((row) => row.closedLoopHours))
@@ -1475,6 +1525,7 @@
           <div class="kpi-row">
             <span class="pill">Admin assignment: ${row.avgAdminAssignmentHours ?? "n/a"}h</span>
             <span class="pill">Team accept/schedule: ${row.avgAssignedToScheduleHours ?? "n/a"}h</span>
+            <span class="pill">Non-dispatch: ${row.avgNonDispatchHours ?? "n/a"}h</span>
             <span class="pill">Field completion: ${row.avgFieldExecutionHours ?? "n/a"}h</span>
             <span class="pill">Admin close: ${row.avgAdminCloseHours ?? "n/a"}h</span>
             <span class="pill">Pool average actual: ${row.avgActualHours ?? "n/a"}h</span>
@@ -1597,6 +1648,9 @@
     Array.from(elements.updateForm.elements.codesUsed.options).forEach((option) => {
       option.selected = false;
     });
+    if (job && canFieldDispatch(job)) {
+      elements.updateForm.elements.updateType.value = "Dispatched";
+    }
     if (job && canFieldStart(job)) {
       elements.updateForm.elements.updateType.value = "Crew started job";
     }
@@ -1643,6 +1697,11 @@
         <span class="muted">${job.market} | ${job.jobType}</span><br>
         <span class="muted">Address: ${job.jobAddress || job.market}</span><br>
         <span class="muted">Dispatcher: ${job.dispatcherName || "Not listed"} | ${formatPhone(job.dispatcherPhone)}</span><br>
+        <span class="muted">Assignment date: ${formatDateTime(job.assignmentAt || job.createdAt)}</span><br>
+        <span class="muted">Schedule date: ${formatDateTime(job.scheduledStartAt)}</span><br>
+        <span class="muted">Due date: ${formatDateTime(job.dueAt || job.scheduledStartAt)}</span><br>
+        <span class="muted">Dispatch time: ${job.dispatchedAt ? formatDateTime(job.dispatchedAt) : "Pending"}</span><br>
+        <span class="muted">Completion date: ${job.completedAt ? formatDateTime(job.completedAt) : "Pending"}</span><br>
         <span class="muted">Workflow step: ${getLifecycleStage(job)}</span><br>
         <span class="muted">Live status: ${getOperationalStatus(job)}</span><br>
         <span class="muted">Admin signoff: ${isAdminApproved(job) ? "Complete" : "Pending"}</span><br>
@@ -1661,6 +1720,7 @@
     elements.jobDetailStageSelect.value = mapUiStageToStoredStage(getLifecycleStage(job));
     fillAssigneeSelect(elements.jobDetailAssigneeSelect, job.assignedTo, job);
     elements.jobDetailForm.elements.scheduledStartAt.value = String(job.scheduledStartAt || "").slice(0, 16);
+    elements.jobDetailForm.elements.dueAt.value = String(job.dueAt || job.scheduledStartAt || "").slice(0, 16);
     elements.jobDetailForm.elements.priority.value = job.priority || "Medium";
     elements.jobDetailForm.elements.adminApproved.checked = isAdminApproved(job);
     elements.jobDetailForm.elements.adminReviewed.checked = isAdminReviewed(job);
@@ -1670,6 +1730,7 @@
     elements.jobDetailStageSelect.disabled = !isAdmin;
     elements.jobDetailAssigneeSelect.disabled = !isAdmin;
     elements.jobDetailForm.elements.scheduledStartAt.disabled = !isAdmin;
+    elements.jobDetailForm.elements.dueAt.disabled = !isAdmin;
     elements.jobDetailForm.elements.priority.disabled = !isAdmin;
     elements.jobDetailForm.elements.adminApproved.disabled = !isAdmin;
     elements.jobDetailForm.elements.adminReviewed.disabled = !isAdmin;
@@ -1686,6 +1747,7 @@
     const needsUpdateBeforeComplete = isAccepted(job) && getOperationalStatus(job) === "In Progress" && getJobUpdates(job.id).length === 0;
     elements.jobFieldActionsList.innerHTML = isAdmin ? "" : `
       ${canFieldAccept(job) ? `<button class="action-btn" type="button" data-action="accept-job" data-id="${job.id}">Accept job</button>` : ""}
+      ${canFieldDispatch(job) ? `<button class="action-btn" type="button" data-action="dispatch-job" data-id="${job.id}">Dispatch</button>` : ""}
       ${canFieldStart(job) ? `<button class="action-btn" type="button" data-action="start-job" data-id="${job.id}">Start job</button>` : ""}
       ${canFieldReject(job) ? `<button class="action-btn" type="button" data-action="reject-job" data-id="${job.id}">Reject job</button>` : ""}
       ${canFieldComplete(job) ? `<button class="action-btn" type="button" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}
@@ -1798,6 +1860,16 @@
         issue: "Assigned team accepted the job."
       });
       window.alert("Job was accepted.");
+      return;
+    }
+
+    if (action === "dispatch-job") {
+      await updateJob(jobId, {
+        dispatched: true,
+        accepted: true,
+        issue: "Crew dispatched to the scheduled job."
+      });
+      window.alert("Dispatch time was recorded.");
       return;
     }
 
@@ -1978,6 +2050,7 @@
           requestedBy: form.get("requestedBy"),
           jobAddress: form.get("jobAddress"),
           jobType: form.get("jobType"),
+          dueAt: form.get("dueAt"),
           scheduledStartAt: form.get("scheduledStartAt"),
           priority: form.get("priority"),
           assignedTo: form.get("assignedTo"),
@@ -2078,6 +2151,7 @@
       await updateJob(Number(form.get("jobId")), {
         lifecycleStage: mapUiStageToStoredStage(String(form.get("lifecycleStage") || "Uploaded")),
         assignedTo,
+        dueAt: form.get("dueAt"),
         scheduledStartAt: form.get("scheduledStartAt"),
         priority: form.get("priority"),
         adminApproved: form.get("adminApproved") === "on",

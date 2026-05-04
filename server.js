@@ -55,6 +55,18 @@ function isScheduledPastDue(value) {
   return !Number.isNaN(timestamp) && timestamp <= Date.now();
 }
 
+function isScheduleBeforeDue(scheduleValue, dueValue) {
+  if (!scheduleValue || !dueValue) {
+    return true;
+  }
+  const schedule = new Date(scheduleValue).getTime();
+  const due = new Date(dueValue).getTime();
+  if (Number.isNaN(schedule) || Number.isNaN(due)) {
+    return true;
+  }
+  return schedule <= due;
+}
+
 function hashPassword(password) {
   return crypto.createHash("sha256").update(password).digest("hex");
 }
@@ -330,6 +342,7 @@ function buildCycleAnalytics(jobs, stageEvents) {
 
     const adminAssignmentHours = diffHours(job.createdAt, lastAssigned?.enteredAt);
     const assignedToScheduleHours = diffHours(lastAssigned?.enteredAt, lastScheduled?.enteredAt);
+    const nonDispatchHours = diffHours(lastScheduled?.enteredAt || job.scheduledStartAt, job.dispatchedAt);
     const fieldExecutionHours = diffHours(lastInProgress?.enteredAt || lastScheduled?.enteredAt, lastCompleted?.enteredAt);
     const adminCloseHours = diffHours(lastCompleted?.enteredAt, lastClosed?.enteredAt);
     const closedLoopHours = adminCloseHours;
@@ -346,6 +359,7 @@ function buildCycleAnalytics(jobs, stageEvents) {
       actualHours,
       adminAssignmentHours,
       assignedToScheduleHours,
+      nonDispatchHours,
       fieldExecutionHours,
       adminCloseHours,
       closedLoopHours,
@@ -514,6 +528,10 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const body = await readBody(req);
+      if (!isScheduleBeforeDue(String(body.scheduledStartAt || ""), String(body.dueAt || body.scheduledStartAt || ""))) {
+        sendJson(res, 400, { error: "Schedule date must be before or equal to the due date." });
+        return;
+      }
       const jobId = await db.createJob({
         title: String(body.title || ""),
         market: String(body.market || ""),
@@ -521,6 +539,8 @@ const server = http.createServer(async (req, res) => {
         jobAddress: String(body.jobAddress || ""),
         jobType: String(body.jobType || ""),
         priority: String(body.priority || "Medium"),
+        dueAt: String(body.dueAt || body.scheduledStartAt || ""),
+        assignmentAt: nowIso(),
         scheduledStartAt: String(body.scheduledStartAt || ""),
         assignedTo: body.assignedTo || "",
         dispatcherName: String(body.dispatcherName || user.name || ""),
@@ -561,6 +581,8 @@ const server = http.createServer(async (req, res) => {
         next.assignedTo = body.assignedTo ?? next.assignedTo;
         next.dispatcherName = body.dispatcherName ?? next.dispatcherName;
         next.dispatcherPhone = body.dispatcherPhone ?? next.dispatcherPhone;
+        next.dueAt = body.dueAt ?? next.dueAt;
+        next.assignmentAt = body.assignmentAt ?? next.assignmentAt;
         next.scheduledStartAt = body.scheduledStartAt ?? next.scheduledStartAt;
         next.priority = body.priority ?? next.priority;
         next.jobValue = body.jobValue ?? next.jobValue;
@@ -585,8 +607,11 @@ const server = http.createServer(async (req, res) => {
 
         if (next.assignedTo && next.assignedTo !== previousAssignedTo) {
           next.dispatcherName = body.dispatcherName ?? user.name ?? next.dispatcherName;
+          next.assignmentAt = nowIso();
           next.acceptedAt = null;
+          next.dispatchedAt = null;
           next.startedAt = null;
+          next.completedAt = null;
           next.rejectedAt = null;
           next.rejectionReason = "";
           if (next.adminApproved) {
@@ -602,7 +627,9 @@ const server = http.createServer(async (req, res) => {
 
         if (!next.assignedTo && previousAssignedTo) {
           next.acceptedAt = null;
+          next.dispatchedAt = null;
           next.startedAt = null;
+          next.completedAt = null;
           next.rejectedAt = null;
           next.rejectionReason = "";
         }
@@ -632,11 +659,18 @@ const server = http.createServer(async (req, res) => {
           next.lifecycleStage = "Scheduled";
         }
       }
+      if (body.dispatched === true) {
+        next.dispatchedAt = next.dispatchedAt || nowIso();
+      }
       if (body.started === true) {
+        next.dispatchedAt = next.dispatchedAt || nowIso();
         next.startedAt = next.startedAt || nowIso();
         if (!["Completed", "Closed"].includes(next.lifecycleStage)) {
           next.lifecycleStage = "In Progress";
         }
+      }
+      if (body.resetDispatched === true) {
+        next.dispatchedAt = null;
       }
       if (body.resetStarted === true) {
         next.startedAt = null;
@@ -651,6 +685,11 @@ const server = http.createServer(async (req, res) => {
       next.blockerStage = body.blockerStage ?? next.blockerStage;
       next.issue = body.issue ?? next.issue;
       next.durationVariance = calculateDurationVariance(next.plannedHours, next.actualHours);
+
+      if (!isScheduleBeforeDue(next.scheduledStartAt, next.dueAt)) {
+        sendJson(res, 400, { error: "Schedule date must be before or equal to the due date." });
+        return;
+      }
 
       if (!next.assignedTo && next.lifecycleStage !== "Uploaded") {
         next.lifecycleStage = "Uploaded";
@@ -716,6 +755,9 @@ const server = http.createServer(async (req, res) => {
         next.blockerReason = "";
         next.blockerStage = "";
         next.completion = 100;
+        next.completedAt = next.completedAt || nowIso();
+      } else if (!["Completed", "Closed"].includes(next.lifecycleStage) && body.lifecycleStage) {
+        next.completedAt = null;
       }
 
       next.intakeStatus = currentLifecycle(next);

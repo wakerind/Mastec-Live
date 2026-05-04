@@ -346,6 +346,7 @@
             <option>Tower Maintenance</option>
           </select>
         </label>
+        <label>Due date<input name="dueAt" type="datetime-local" required></label>
         <label>Scheduled start<input name="scheduledStartAt" type="datetime-local" required></label>
         <label>Assigned team or contractor<input name="assignedTo"></label>
         <label>Admin who assigned<input name="dispatcherName" required></label>
@@ -397,6 +398,7 @@
         <label>Update type
           <select name="updateType">
             <option value="Work performed">Work performed</option>
+            <option value="Dispatched">Dispatched</option>
             <option value="Crew started job">Crew started job</option>
             <option value="Progress update">Progress update</option>
             <option value="Material update">Material update</option>
@@ -487,6 +489,9 @@
           </label>
           <label>Scheduled start
             <input name="scheduledStartAt" type="datetime-local">
+          </label>
+          <label>Due date
+            <input name="dueAt" type="datetime-local">
           </label>
           <label>Priority
             <select name="priority">

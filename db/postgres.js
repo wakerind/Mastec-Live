@@ -22,6 +22,8 @@ async function hydrateLegacyJobData(pool) {
         WHEN COALESCE(actual_hours, 0) = 0 AND completion > 0 THEN ROUND(((40 + COALESCE(duration_variance, 0) / 2.0) * (completion / 100.0))::numeric, 1)
         ELSE actual_hours
       END,
+      due_at = COALESCE(due_at, scheduled_start_at),
+      assignment_at = COALESCE(assignment_at, created_at),
       blocker_reason = COALESCE(blocker_reason, ''),
       lifecycle_stage = CASE
         WHEN COALESCE(lifecycle_stage, '') != '' THEN lifecycle_stage
@@ -52,9 +54,19 @@ async function hydrateLegacyJobData(pool) {
         WHEN lifecycle_stage IN ('Accepted', 'Scheduled', 'In Progress', 'Completed', 'Admin Reviewed', 'Closed') THEN created_at
         ELSE NULL
       END,
+      dispatched_at = CASE
+        WHEN dispatched_at IS NOT NULL THEN dispatched_at
+        WHEN lifecycle_stage IN ('In Progress', 'Completed', 'Admin Reviewed', 'Closed') THEN started_at
+        ELSE NULL
+      END,
       started_at = CASE
         WHEN started_at IS NOT NULL THEN started_at
         WHEN lifecycle_stage IN ('In Progress', 'Completed', 'Admin Reviewed', 'Closed') THEN created_at
+        ELSE NULL
+      END,
+      completed_at = CASE
+        WHEN completed_at IS NOT NULL THEN completed_at
+        WHEN lifecycle_stage IN ('Completed', 'Admin Reviewed', 'Closed') THEN created_at
         ELSE NULL
       END,
       admin_reviewed_at = CASE
@@ -83,12 +95,16 @@ async function ensureJobColumns(pool) {
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_address TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS dispatcher_name TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS dispatcher_phone TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS due_at TIMESTAMPTZ");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS assignment_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS blocker_reason TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS blocker_stage TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS lifecycle_stage TEXT NOT NULL DEFAULT 'Uploaded'");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS admin_approved BOOLEAN NOT NULL DEFAULT FALSE");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS admin_reviewed_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS rejection_reason TEXT NOT NULL DEFAULT ''");
@@ -276,6 +292,8 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
           job_type AS "jobType",
           priority,
           intake_status AS "intakeStatus",
+          due_at AS "dueAt",
+          assignment_at AS "assignmentAt",
           to_char(scheduled_start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS "scheduledStartAt",
           COALESCE(assigned_to, '') AS "assignedTo",
           COALESCE(dispatcher_name, '') AS "dispatcherName",
@@ -291,7 +309,9 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
           COALESCE(lifecycle_stage, 'Uploaded') AS "lifecycleStage",
           admin_approved AS "adminApproved",
           accepted_at AS "acceptedAt",
+          dispatched_at AS "dispatchedAt",
           started_at AS "startedAt",
+          completed_at AS "completedAt",
           admin_reviewed_at AS "adminReviewedAt",
           rejected_at AS "rejectedAt",
           COALESCE(rejection_reason, '') AS "rejectionReason",
@@ -314,6 +334,8 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
           job_type AS "jobType",
           priority,
           intake_status AS "intakeStatus",
+          due_at AS "dueAt",
+          assignment_at AS "assignmentAt",
           to_char(scheduled_start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS "scheduledStartAt",
           COALESCE(assigned_to, '') AS "assignedTo",
           COALESCE(dispatcher_name, '') AS "dispatcherName",
@@ -329,7 +351,9 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
           COALESCE(lifecycle_stage, 'Uploaded') AS "lifecycleStage",
           admin_approved AS "adminApproved",
           accepted_at AS "acceptedAt",
+          dispatched_at AS "dispatchedAt",
           started_at AS "startedAt",
+          completed_at AS "completedAt",
           admin_reviewed_at AS "adminReviewedAt",
           rejected_at AS "rejectedAt",
           COALESCE(rejection_reason, '') AS "rejectionReason",
@@ -339,17 +363,17 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         FROM jobs WHERE id = $1
       `, [jobId])).rows[0];
     },
-    async createJob({ title, market, requestedBy, jobAddress, jobType, priority, scheduledStartAt, assignedTo, dispatcherName, dispatcherPhone, jobValue, laborCost, plannedHours, blockerReason, createdByUserId }) {
+    async createJob({ title, market, requestedBy, jobAddress, jobType, priority, dueAt, assignmentAt, scheduledStartAt, assignedTo, dispatcherName, dispatcherPhone, jobValue, laborCost, plannedHours, blockerReason, createdByUserId }) {
       const normalizedJobValue = Number(jobValue || 0);
       const normalizedLaborCost = Number(laborCost || 0);
       const normalizedPlannedHours = Number(plannedHours || 0) || 8;
       const lifecycleStage = assignedTo ? "Assigned" : "Uploaded";
       const result = await pool.query(`
         INSERT INTO jobs (
-          title, market, requested_by, job_address, job_type, priority, intake_status, scheduled_start_at,
+          title, market, requested_by, job_address, job_type, priority, intake_status, due_at, assignment_at, scheduled_start_at,
           assigned_to, dispatcher_name, dispatcher_phone, field_status, completion, budget, job_value, labor_cost, planned_hours,
-          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, started_at, admin_reviewed_at, issue, quality_score, duration_variance, created_at, created_by_user_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
+          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, dispatched_at, started_at, completed_at, admin_reviewed_at, issue, quality_score, duration_variance, created_at, created_by_user_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::timestamptz, $10::timestamptz, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)
         RETURNING id
       `, [
         title,
@@ -359,6 +383,8 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         jobType,
         priority,
         assignedTo ? "Assigned" : "Uploaded",
+        dueAt || scheduledStartAt,
+        assignmentAt || nowIso(),
         scheduledStartAt,
         assignedTo || null,
         dispatcherName || requestedBy || "",
@@ -374,6 +400,8 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         blockerReason ? lifecycleStage : "",
         lifecycleStage,
         false,
+        null,
+        null,
         null,
         null,
         null,
@@ -396,11 +424,11 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
       await pool.query(`
         UPDATE jobs
         SET intake_status = $1, assigned_to = $2, scheduled_start_at = $3::timestamptz, priority = $4,
-            requested_by = $5, job_address = $6, dispatcher_name = $7, dispatcher_phone = $8,
-            field_status = $9, completion = $10, issue = $11, job_value = $12, labor_cost = $13,
-            planned_hours = $14, actual_hours = $15, blocker_reason = $16, blocker_stage = $17, lifecycle_stage = $18, admin_approved = $19, accepted_at = $20, started_at = $21, admin_reviewed_at = $22, rejected_at = $23, rejection_reason = $24, duration_variance = $25,
-            budget = $26
-        WHERE id = $27
+            requested_by = $5, job_address = $6, dispatcher_name = $7, dispatcher_phone = $8, due_at = $9::timestamptz, assignment_at = $10::timestamptz,
+            field_status = $11, completion = $12, issue = $13, job_value = $14, labor_cost = $15,
+            planned_hours = $16, actual_hours = $17, blocker_reason = $18, blocker_stage = $19, lifecycle_stage = $20, admin_approved = $21, accepted_at = $22, dispatched_at = $23, started_at = $24, completed_at = $25, admin_reviewed_at = $26, rejected_at = $27, rejection_reason = $28, duration_variance = $29,
+            budget = $30
+        WHERE id = $31
       `, [
         next.intakeStatus,
         next.assignedTo || null,
@@ -410,6 +438,8 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         next.jobAddress || "",
         next.dispatcherName || "",
         next.dispatcherPhone || "",
+        next.dueAt || null,
+        next.assignmentAt || null,
         next.fieldStatus,
         Number(next.completion),
         next.issue,
@@ -422,7 +452,9 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         next.lifecycleStage || "Uploaded",
         Boolean(next.adminApproved),
         next.acceptedAt || null,
+        next.dispatchedAt || null,
         next.startedAt || null,
+        next.completedAt || null,
         next.adminReviewedAt || null,
         next.rejectedAt || null,
         next.rejectionReason || "",
