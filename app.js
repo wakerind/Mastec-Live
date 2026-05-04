@@ -539,24 +539,20 @@
             const latestUpdate = getLatestUpdate(job.id);
             const lifecycle = getLifecycleStage(job);
             return `
-            <tr>
+            <tr class="sheet-data-row">
               <td class="sheet-primary-cell">
                 <strong>${job.title}</strong>
                 <span>${job.requestedBy}</span>
-                <button class="sheet-inline-action" data-action="open-job" data-id="${job.id}">Open job</button>
               </td>
               <td>
                 <div>${job.market}</div>
-                ${!["Closed"].includes(lifecycle) ? `<button class="sheet-inline-action" data-action="advance-stage" data-id="${job.id}">Advance</button>` : ""}
               </td>
               <td>
                 <div>${job.jobType}</div>
-                <button class="sheet-inline-action" data-action="${job.blockerReason ? "clear-blocker" : "add-blocker"}" data-id="${job.id}">${job.blockerReason ? "Clear blocker" : "Add blocker"}</button>
               </td>
               <td>
                 <span class="sheet-stage ${getStatusClass(getLifecycleStage(job))}">${getLifecycleStage(job)}</span>
                 <div class="sheet-substatus">${getOperationalStatus(job)}</div>
-                <button class="sheet-inline-action" data-action="log-update" data-id="${job.id}">Add update</button>
               </td>
               <td class="sheet-update-cell">
                 <div>${latestUpdate ? formatDateTime(latestUpdate.createdAt) : "No updates yet"}</div>
@@ -569,6 +565,20 @@
               <td>${Number(job.plannedHours || 0)}h</td>
               <td>${Number(job.actualHours || 0)}h</td>
               <td class="sheet-blocker-cell">${job.blockerReason ? `${job.blockerStage || getLifecycleStage(job)} | ${job.blockerReason}` : "<span class=\"muted\">Clear</span>"}</td>
+            </tr>
+            <tr class="sheet-action-row">
+              <td><button class="sheet-inline-action" data-action="open-job" data-id="${job.id}">Open job</button></td>
+              <td>${!["Closed"].includes(lifecycle) ? `<button class="sheet-inline-action" data-action="advance-stage" data-id="${job.id}">Advance</button>` : ""}</td>
+              <td><button class="sheet-inline-action" data-action="${job.blockerReason ? "clear-blocker" : "add-blocker"}" data-id="${job.id}">${job.blockerReason ? "Clear blocker" : "Add blocker"}</button></td>
+              <td><button class="sheet-inline-action" data-action="log-update" data-id="${job.id}">Add update</button></td>
+              <td>${appState.session?.role === "admin" && !isAdminApproved(job) ? `<button class="sheet-inline-action" data-action="admin-signoff" data-id="${job.id}">Admin signoff</button>` : ""}</td>
+              <td>${!job.assignedTo ? `<button class="sheet-inline-action" data-action="assign-job" data-id="${job.id}">Assign</button>` : ""}</td>
+              <td></td>
+              <td></td>
+              <td></td>
+              <td></td>
+              <td></td>
+              <td></td>
             </tr>
           `;}).join("")}
         </tbody>

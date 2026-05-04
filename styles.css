@@ -1,19 +1,19 @@
 :root {
-  --bg: #f4efe6;
-  --surface: rgba(255, 251, 245, 0.82);
-  --surface-strong: #fffdf8;
-  --surface-dark: #17342e;
-  --text: #1f2a28;
-  --muted: #62706a;
-  --line: rgba(24, 48, 43, 0.12);
-  --line-strong: rgba(24, 48, 43, 0.24);
-  --accent: #dd6b2d;
-  --accent-soft: rgba(221, 107, 45, 0.14);
-  --success: #2d7a55;
-  --warning: #d59d20;
-  --danger: #bb4d3e;
-  --info: #2f6db1;
-  --shadow: 0 20px 45px rgba(42, 35, 26, 0.12);
+  --bg: #edf3f7;
+  --surface: rgba(255, 255, 255, 0.88);
+  --surface-strong: #ffffff;
+  --surface-dark: #0f172a;
+  --text: #172033;
+  --muted: #64748b;
+  --line: rgba(15, 23, 42, 0.08);
+  --line-strong: rgba(15, 23, 42, 0.16);
+  --accent: #0f766e;
+  --accent-soft: rgba(15, 118, 110, 0.12);
+  --success: #15803d;
+  --warning: #b7791f;
+  --danger: #c2410c;
+  --info: #2563eb;
+  --shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
   --radius: 24px;
 }
 
@@ -31,9 +31,9 @@ body {
   font-family: "Aptos", "Segoe UI", "Trebuchet MS", sans-serif;
   color: var(--text);
   background:
-    radial-gradient(circle at top left, rgba(221, 107, 45, 0.18), transparent 25%),
-    radial-gradient(circle at bottom right, rgba(45, 122, 85, 0.18), transparent 25%),
-    linear-gradient(180deg, #f7f1e8 0%, #efe7da 100%);
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.08), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(15, 118, 110, 0.1), transparent 24%),
+    linear-gradient(180deg, #f8fbfd 0%, #edf3f7 100%);
 }
 
 button,
@@ -58,8 +58,8 @@ button:hover {
 
 .sidebar {
   padding: 28px;
-  background: rgba(23, 52, 46, 0.95);
-  color: #f5efe6;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(15, 118, 110, 0.96) 100%);
+  color: #eff6ff;
   display: flex;
   flex-direction: column;
   gap: 28px;
@@ -77,8 +77,8 @@ button:hover {
   border-radius: 16px;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, #f8bb65, #dd6b2d);
-  color: #17342e;
+  background: linear-gradient(135deg, #22c55e, #0ea5e9);
+  color: #0f172a;
   font-family: "Bahnschrift", "Arial Narrow", sans-serif;
   font-size: 1.55rem;
   font-weight: 700;
@@ -120,14 +120,14 @@ button:hover {
 
 .nav-link:hover,
 .nav-link.active {
-  background: rgba(255, 255, 255, 0.11);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .sidebar-panel {
   margin-top: auto;
   padding: 18px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .session-card {
@@ -203,7 +203,7 @@ button:hover {
 
 .secondary-btn {
   padding: 12px 18px;
-  background: white;
+  background: rgba(255, 255, 255, 0.9);
   color: var(--text);
   border: 1px solid var(--line);
 }
@@ -347,7 +347,7 @@ button:hover {
 }
 
 .pill {
-  background: #f5eee3;
+  background: #eef4f8;
   color: var(--muted);
 }
 
@@ -574,7 +574,7 @@ button:hover {
   min-height: 180px;
   padding: 12px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.76);
   border: 1px dashed var(--line-strong);
   display: grid;
   align-content: start;
@@ -636,7 +636,7 @@ button:hover {
 }
 
 .empty-stage {
-  padding: 10px 0 0;
+  padding: 2px 0 0;
   border-radius: 16px;
   text-align: left;
   align-self: start;
@@ -655,7 +655,7 @@ button:hover {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #f5ede1;
+  background: #f2f7fb;
   text-align: left;
   padding: 14px 16px;
   font-size: 0.78rem;
@@ -688,7 +688,7 @@ button:hover {
 }
 
 .sheet-table tbody tr:hover td {
-  background: rgba(255, 248, 239, 0.98);
+  background: rgba(240, 247, 251, 0.98);
 }
 
 .sheet-primary-cell {
@@ -704,7 +704,7 @@ button:hover {
 
 .sheet-inline-action {
   display: inline-flex;
-  margin-top: 10px;
+  margin-top: 0;
   border: 0;
   background: transparent;
   color: var(--info);
@@ -737,6 +737,17 @@ button:hover {
 
 .sheet-blocker-cell {
   min-width: 190px;
+}
+
+.sheet-action-row td {
+  padding-top: 0;
+  padding-bottom: 14px;
+  background: rgba(251, 253, 255, 0.94);
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.sheet-data-row td {
+  border-bottom: 0;
 }
 
 .sheet-actions {
