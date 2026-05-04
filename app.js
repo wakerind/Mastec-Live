@@ -66,10 +66,12 @@
     assignDialog: document.getElementById("assignDialog"),
     assignForm: document.getElementById("assignForm"),
     assignCrewSelect: document.getElementById("assignCrewSelect"),
+    assignCrewOptions: document.getElementById("assignCrewOptions"),
     closeAssignDialog: document.getElementById("closeAssignDialog"),
     cancelAssignDialog: document.getElementById("cancelAssignDialog"),
     updateDialog: document.getElementById("updateDialog"),
     updateForm: document.getElementById("updateForm"),
+    codesUsedSearch: document.getElementById("codesUsedSearch"),
     closeUpdateDialog: document.getElementById("closeUpdateDialog"),
     cancelUpdateDialog: document.getElementById("cancelUpdateDialog"),
     rejectDialog: document.getElementById("rejectDialog"),
@@ -85,6 +87,9 @@
     jobDetailUpdates: document.getElementById("jobDetailUpdates"),
     jobDetailStageSelect: document.getElementById("jobDetailStageSelect"),
     jobDetailAssigneeSelect: document.getElementById("jobDetailAssigneeSelect"),
+    detailCrewOptions: document.getElementById("detailCrewOptions"),
+    crewOptions: document.getElementById("crewOptions"),
+    lifecycleStageOptions: document.getElementById("lifecycleStageOptions"),
     jobWorkflowControls: document.getElementById("jobWorkflowControls"),
     jobFieldActions: document.getElementById("jobFieldActions"),
     jobFieldActionsList: document.getElementById("jobFieldActionsList"),
@@ -226,7 +231,7 @@
   }
 
   function getDefaultScreen() {
-    return appState.session?.role === "field" ? "field" : "overview";
+    return "overview";
   }
 
   function getAllowedScreens() {
@@ -234,7 +239,7 @@
       return [];
     }
     return appState.session.role === "field"
-      ? ["overview", "admin", "assignment", "field", "history"]
+      ? ["overview", "assignment"]
       : ["overview", "admin", "assignment", "history", "accounts", "leadership"];
   }
 
@@ -408,6 +413,14 @@
     return values.length
       ? values.map((value) => `<span class="pill">${value}</span>`).join("")
       : `<span class="muted">${emptyLabel}</span>`;
+  }
+
+  function escapeHtml(value) {
+    return String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
   function summarizeUpdate(update) {
@@ -975,12 +988,19 @@
   function renderDashboardShortcuts() {
     const activeJobs = appState.jobs.filter((job) => !["Completed", "Closed"].includes(getLifecycleStage(job))).length;
     const readyToDispatch = appState.jobs.filter((job) => canFieldDispatch(job)).length;
+    const readyToStart = appState.jobs.filter((job) => canFieldStart(job)).length;
     const readyToClose = appState.jobs.filter((job) => getLifecycleStage(job) === "Completed").length;
-    const shortcuts = [
-      { label: "Dispatch jobs", note: `${activeJobs} active jobs in circulation`, screen: "admin" },
-      { label: "Dispatch-ready crews", note: `${readyToDispatch} scheduled jobs waiting on morning dispatch`, screen: "field" },
-      { label: "Closeout queue", note: `${readyToClose} jobs waiting on final review`, screen: "history" }
-    ];
+    const shortcuts = appState.session?.role === "field"
+      ? [
+          { label: "My assignment board", note: `${activeJobs} jobs visible in your workflow`, screen: "assignment" },
+          { label: "Dispatch-ready jobs", note: `${readyToDispatch} scheduled jobs waiting on morning dispatch`, screen: "assignment" },
+          { label: "Start-ready jobs", note: `${readyToStart} jobs can move into progress`, screen: "assignment" }
+        ]
+      : [
+          { label: "Dispatch jobs", note: `${activeJobs} active jobs in circulation`, screen: "admin" },
+          { label: "Dispatch-ready crews", note: `${readyToDispatch} scheduled jobs waiting on morning dispatch`, screen: "assignment" },
+          { label: "Closeout queue", note: `${readyToClose} jobs waiting on final review`, screen: "history" }
+        ];
     elements.dashboardShortcuts.innerHTML = shortcuts.map((shortcut) => `
       <button class="shortcut-card" type="button" data-nav-screen="${shortcut.screen}">
         <strong>${shortcut.label}</strong>
@@ -1039,7 +1059,7 @@
     const filteredItems = appState.jobs.filter((job) => {
       const lifecycle = getLifecycleStage(job);
       const statusMatch = filters.status === "all" || lifecycle === filters.status;
-      const haystack = `${job.title} ${job.requestedBy} ${job.market} ${job.jobAddress} ${job.jobType} ${job.assignedTo} ${job.dispatcherName} ${job.blockerReason}`.toLowerCase();
+      const haystack = `${job.title} ${job.requestedBy} ${job.market} ${job.jobAddress} ${job.jobType} ${job.jobDescription} ${job.assignedTo} ${job.dispatcherName} ${job.blockerReason}`.toLowerCase();
       return statusMatch && (!filters.query || haystack.includes(filters.query));
     });
     const items = sortJobs(filteredItems);
@@ -1073,6 +1093,7 @@
                 <strong>${job.title}</strong>
                 <span>${job.requestedBy}</span>
                 <span>${job.jobAddress || job.market}</span>
+                <span>${job.jobDescription || job.issue}</span>
               </td>
               <td>
                 <div>${job.market}</div>
@@ -1124,7 +1145,7 @@
     const items = appState.jobs.filter((job) => {
       const window = getAssignmentWindow(job);
       const statusMatch = filters.window === "all" || window.label === filters.window;
-      const haystack = `${job.title} ${job.market} ${job.jobAddress} ${job.assignedTo} ${job.requestedBy} ${job.dispatcherName}`.toLowerCase();
+      const haystack = `${job.title} ${job.market} ${job.jobAddress} ${job.jobDescription} ${job.assignedTo} ${job.requestedBy} ${job.dispatcherName}`.toLowerCase();
       return statusMatch && (!filters.query || haystack.includes(filters.query));
     });
 
@@ -1160,6 +1181,7 @@
                     <span class="pill">${job.jobAddress || job.market}</span>
                     <span class="pill">${job.dispatcherName || "Dispatcher not set"}</span>
                   </div>
+                  <p class="muted board-card-note">${job.jobDescription || job.issue}</p>
                   <div class="job-actions compact-actions">
                     <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
                   </div>
@@ -1178,7 +1200,7 @@
     const items = appState.jobs.filter((job) => {
       const status = getOperationalStatus(job);
       const statusMatch = filters.status === "all" || status === filters.status;
-      const haystack = `${job.title} ${job.market} ${job.jobAddress} ${job.assignedTo} ${job.dispatcherName} ${job.blockerReason}`.toLowerCase();
+      const haystack = `${job.title} ${job.market} ${job.jobAddress} ${job.jobDescription} ${job.assignedTo} ${job.dispatcherName} ${job.blockerReason}`.toLowerCase();
       return statusMatch && (!filters.query || haystack.includes(filters.query));
     });
 
@@ -1204,7 +1226,8 @@
         <div class="job-progress">
           <div class="progress-bar"><span style="width:${job.completion}%"></span></div>
           <p class="muted">${job.completion}% complete | ${formatCurrency(job.jobValue)} value | ${formatCurrency(job.laborCost)} labor</p>
-          <p class="muted">${job.blockerReason || job.issue}</p>
+          <p class="muted">${job.jobDescription || job.issue}</p>
+          <p class="muted">${job.blockerReason || "No active blockers reported."}</p>
           <p class="muted">Dispatcher: ${job.dispatcherName || "Not listed"} | ${formatPhone(job.dispatcherPhone)}</p>
           <p class="muted">Assignment: ${formatDateTime(job.assignmentAt || job.createdAt)} | Dispatch: ${job.dispatchedAt ? formatDateTime(job.dispatchedAt) : "Pending"} | Non-dispatch hours: ${hoursBetween(job.scheduledStartAt, job.dispatchedAt) ?? "n/a"}</p>
         </div>
@@ -1236,7 +1259,7 @@
       .filter((job) => getLifecycleStage(job) === "Closed")
       .filter((job) => {
         const typeMatch = filters.type === "all" || job.jobType === filters.type;
-        const haystack = `${job.title} ${job.market} ${job.jobAddress} ${job.jobType} ${job.dispatcherName}`.toLowerCase();
+        const haystack = `${job.title} ${job.market} ${job.jobAddress} ${job.jobType} ${job.jobDescription} ${job.dispatcherName}`.toLowerCase();
         return typeMatch && (!filters.query || haystack.includes(filters.query));
       })
       .sort((left, right) => new Date(getClosedAt(right) || 0) - new Date(getClosedAt(left) || 0));
@@ -1255,6 +1278,7 @@
           <span class="pill">Closed ${formatDateTime(getClosedAt(job) || job.adminReviewedAt)}</span>
           <span class="pill">Dispatcher: ${job.dispatcherName || "Not listed"}</span>
         </div>
+        <p class="muted">${job.jobDescription || job.issue}</p>
         <div class="detail-stack">
           <div>
             <p class="eyebrow">Work done</p>
@@ -1274,6 +1298,9 @@
   }
 
   function renderCrews() {
+    if (!elements.crewList) {
+      return;
+    }
     elements.crewList.innerHTML = appState.crews.map((crew) => `
       <article class="crew-card">
         <div class="crew-card-header">
@@ -1590,6 +1617,7 @@
     renderMasterGrid(filters.intake);
     renderStageBoard(filters.assignment);
     renderCrews();
+    fillCrewDatalist(elements.crewOptions);
     populateHistoryTypeFilter();
     populateKpiEntityFilter();
     renderFieldJobs(filters.field);
@@ -1634,7 +1662,7 @@
       return;
     }
     elements.assignForm.elements.jobId.value = String(jobId);
-    fillAssigneeSelect(elements.assignCrewSelect, job.assignedTo, job);
+    fillAssigneeSelect(elements.assignCrewSelect, job.assignedTo, job, elements.assignCrewOptions);
     elements.assignDialog.showModal();
   }
 
@@ -1645,8 +1673,10 @@
     elements.updateForm.elements.attachment.value = "";
     elements.updateForm.elements.updateType.value = "Work performed";
     elements.updateForm.elements.workDone.value = "";
+    elements.codesUsedSearch.value = "";
     Array.from(elements.updateForm.elements.codesUsed.options).forEach((option) => {
       option.selected = false;
+      option.hidden = false;
     });
     if (job && canFieldDispatch(job)) {
       elements.updateForm.elements.updateType.value = "Dispatched";
@@ -1665,23 +1695,65 @@
     elements.rejectForm.elements.reason.focus();
   }
 
-  function fillAssigneeSelect(selectElement, currentValue, job) {
+  function fillAssigneeSelect(inputElement, currentValue, job, datalistElement = null) {
     const allCrewOptions = job
       ? appState.crews.map((crew) => ({
           ...crew,
           conflicts: getCrewScheduleConflicts(job, crew.name)
         }))
       : appState.crews.map((crew) => ({ ...crew, conflicts: [] }));
-    const crewOptions = allCrewOptions.filter((crew) => crew.conflicts.length === 0);
-    selectElement.innerHTML = [`<option value="">Unassigned</option>`]
-      .concat(crewOptions.map((crew) => `<option value="${crew.name}">${crew.name} | ${crew.available} available | ${crew.contactName || "Dispatch contact"}</option>`))
-      .join("");
-    if (currentValue && !crewOptions.some((crew) => crew.name === currentValue)) {
-      const currentCrew = allCrewOptions.find((crew) => crew.name === currentValue);
-      const reason = currentCrew?.conflicts?.length ? `Schedule conflict with ${currentCrew.conflicts.map((conflict) => conflict.title).join(", ")}` : "Currently unavailable";
-      selectElement.innerHTML += `<option value="${currentValue}">${currentValue} | ${reason}</option>`;
+    const crewOptions = allCrewOptions.filter((crew) => crew.conflicts.length === 0 && (Number(crew.available) > 0 || crew.name === currentValue));
+    const targetList = datalistElement || elements.crewOptions;
+    if (targetList) {
+      targetList.innerHTML = crewOptions
+        .map((crew) => `<option value="${escapeHtml(crew.name)}">${escapeHtml(`${crew.available} available | ${crew.contactName || "Dispatch contact"}`)}</option>`)
+        .join("");
+      if (currentValue && !crewOptions.some((crew) => crew.name === currentValue)) {
+        targetList.innerHTML += `<option value="${escapeHtml(currentValue)}"></option>`;
+      }
     }
-    selectElement.value = currentValue || "";
+    inputElement.value = currentValue || "";
+  }
+
+  function fillCrewDatalist(datalistElement) {
+    if (!datalistElement) {
+      return;
+    }
+    const visibleCrews = appState.crews.filter((crew) => Number(crew.available) > 0);
+    const crews = visibleCrews.length ? visibleCrews : appState.crews;
+    datalistElement.innerHTML = crews
+      .map((crew) => `<option value="${escapeHtml(crew.name)}">${escapeHtml(`${crew.available} available | ${crew.contactName || "Dispatch contact"}`)}</option>`)
+      .join("");
+  }
+
+  function refreshJobFormCrewOptions() {
+    if (!elements.jobForm) {
+      return;
+    }
+    const scheduledStartAt = elements.jobForm.elements.scheduledStartAt.value;
+    const plannedHours = Number(elements.jobForm.elements.plannedHours.value || 0) || 8;
+    const currentAssignee = elements.jobForm.elements.assignedTo.value || "";
+    if (!scheduledStartAt) {
+      fillCrewDatalist(elements.crewOptions);
+      return;
+    }
+    fillAssigneeSelect(
+      elements.jobForm.elements.assignedTo,
+      currentAssignee,
+      {
+        id: "draft-job",
+        scheduledStartAt,
+        plannedHours
+      },
+      elements.crewOptions
+    );
+  }
+
+  function filterCodeOptions(query) {
+    const normalizedQuery = String(query || "").trim().toLowerCase();
+    Array.from(elements.updateForm.elements.codesUsed.options).forEach((option) => {
+      option.hidden = normalizedQuery ? !option.value.toLowerCase().includes(normalizedQuery) : false;
+    });
   }
 
   function openJobDetailDialog(jobId) {
@@ -1696,6 +1768,7 @@
         <strong>${job.title}</strong><br>
         <span class="muted">${job.market} | ${job.jobType}</span><br>
         <span class="muted">Address: ${job.jobAddress || job.market}</span><br>
+        <span class="muted">Description: ${job.jobDescription || job.issue}</span><br>
         <span class="muted">Dispatcher: ${job.dispatcherName || "Not listed"} | ${formatPhone(job.dispatcherPhone)}</span><br>
         <span class="muted">Assignment date: ${formatDateTime(job.assignmentAt || job.createdAt)}</span><br>
         <span class="muted">Schedule date: ${formatDateTime(job.scheduledStartAt)}</span><br>
@@ -1716,9 +1789,9 @@
       ${getMapsUrl(job) ? `<a class="action-btn action-link" href="${getMapsUrl(job)}" target="_blank" rel="noreferrer">Open in Maps</a>` : ""}
       ${job.dispatcherPhone ? `<a class="action-btn action-link" href="tel:${job.dispatcherPhone}">Call dispatcher</a>` : ""}
     `;
-    elements.jobDetailStageSelect.innerHTML = editableLifecycleStages.map((stage) => `<option value="${stage}">${stage}</option>`).join("");
+    elements.lifecycleStageOptions.innerHTML = editableLifecycleStages.map((stage) => `<option value="${escapeHtml(stage)}"></option>`).join("");
     elements.jobDetailStageSelect.value = mapUiStageToStoredStage(getLifecycleStage(job));
-    fillAssigneeSelect(elements.jobDetailAssigneeSelect, job.assignedTo, job);
+    fillAssigneeSelect(elements.jobDetailAssigneeSelect, job.assignedTo, job, elements.detailCrewOptions);
     elements.jobDetailForm.elements.scheduledStartAt.value = String(job.scheduledStartAt || "").slice(0, 16);
     elements.jobDetailForm.elements.dueAt.value = String(job.dueAt || job.scheduledStartAt || "").slice(0, 16);
     elements.jobDetailForm.elements.priority.value = job.priority || "Medium";
@@ -1774,7 +1847,7 @@
     fillAssigneeSelect(elements.jobDetailAssigneeSelect, currentAssignee, {
       ...job,
       scheduledStartAt: overrideStart || job.scheduledStartAt
-    });
+    }, elements.detailCrewOptions);
   }
 
   async function handleActionClick(event) {
@@ -2008,10 +2081,15 @@
       renderApp();
     });
 
+    elements.codesUsedSearch.addEventListener("input", () => {
+      filterCodeOptions(elements.codesUsedSearch.value);
+    });
+
     elements.openJobDialog.addEventListener("click", () => {
       if (appState.session?.name) {
         elements.jobForm.elements.dispatcherName.value = appState.session.name;
       }
+      fillCrewDatalist(elements.crewOptions);
       elements.jobDialog.showModal();
     });
     elements.exportCsvButton.addEventListener("click", downloadCycleExport);
@@ -2042,6 +2120,21 @@
     elements.jobForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const form = new FormData(elements.jobForm);
+      const assignedTo = String(form.get("assignedTo") || "");
+      if (assignedTo && !appState.crews.some((crew) => crew.name === assignedTo)) {
+        window.alert("Choose a team from the available list.");
+        return;
+      }
+      const draftJob = {
+        id: "draft-job",
+        scheduledStartAt: String(form.get("scheduledStartAt") || ""),
+        plannedHours: Number(form.get("plannedHours") || 0) || 8
+      };
+      const conflicts = getCrewScheduleConflicts(draftJob, assignedTo);
+      if (assignedTo && conflicts.length) {
+        window.alert(`That crew already has overlapping work scheduled: ${conflicts.map((conflict) => conflict.title).join(", ")}`);
+        return;
+      }
       await api("/api/jobs", {
         method: "POST",
         body: JSON.stringify({
@@ -2050,10 +2143,11 @@
           requestedBy: form.get("requestedBy"),
           jobAddress: form.get("jobAddress"),
           jobType: form.get("jobType"),
+          jobDescription: form.get("jobDescription"),
           dueAt: form.get("dueAt"),
           scheduledStartAt: form.get("scheduledStartAt"),
           priority: form.get("priority"),
-          assignedTo: form.get("assignedTo"),
+          assignedTo,
           dispatcherName: form.get("dispatcherName"),
           dispatcherPhone: form.get("dispatcherPhone"),
           jobValue: Number(form.get("jobValue") || 0),
@@ -2088,6 +2182,10 @@
       const form = new FormData(elements.assignForm);
       const jobId = Number(form.get("jobId"));
       const assignedTo = String(form.get("assignedTo") || "");
+      if (assignedTo && !appState.crews.some((crew) => crew.name === assignedTo)) {
+        window.alert("Choose a team from the available list.");
+        return;
+      }
       const job = appState.jobs.find((item) => String(item.id) === String(jobId));
       if (!job) {
         return;
@@ -2148,6 +2246,10 @@
       event.preventDefault();
       const form = new FormData(elements.jobDetailForm);
       const assignedTo = String(form.get("assignedTo") || "");
+      if (assignedTo && !appState.crews.some((crew) => crew.name === assignedTo)) {
+        window.alert("Choose a team from the available list.");
+        return;
+      }
       await updateJob(Number(form.get("jobId")), {
         lifecycleStage: mapUiStageToStoredStage(String(form.get("lifecycleStage") || "Uploaded")),
         assignedTo,
@@ -2167,6 +2269,10 @@
 
     elements.jobDetailForm.elements.scheduledStartAt.addEventListener("input", refreshJobDetailAssignees);
     elements.jobDetailForm.elements.scheduledStartAt.addEventListener("change", refreshJobDetailAssignees);
+    elements.jobForm.elements.scheduledStartAt.addEventListener("input", refreshJobFormCrewOptions);
+    elements.jobForm.elements.scheduledStartAt.addEventListener("change", refreshJobFormCrewOptions);
+    elements.jobForm.elements.plannedHours.addEventListener("input", refreshJobFormCrewOptions);
+    elements.jobForm.elements.plannedHours.addEventListener("change", refreshJobFormCrewOptions);
 
     elements.demoAdminCreds.addEventListener("click", () => {
       elements.loginForm.elements.email.value = "admin@fieldsight.local";

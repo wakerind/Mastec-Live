@@ -305,10 +305,6 @@ button:hover {
   align-items: start;
 }
 
-.assignment-grid {
-  grid-template-columns: minmax(0, 2.4fr) minmax(280px, 0.8fr);
-}
-
 .login-shell {
   min-height: calc(100vh - 56px);
   display: grid;
@@ -768,11 +764,14 @@ button:hover {
 
 .stage-board {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(220px, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 18px;
-  overflow-x: auto;
+  overflow: visible;
   padding-bottom: 8px;
+}
+
+.stage-board-wide {
+  align-items: start;
 }
 
 .stage-column {
@@ -780,7 +779,8 @@ button:hover {
   align-content: start;
   gap: 8px;
   grid-template-rows: auto 1fr;
-  min-height: 420px;
+  min-height: 380px;
+  min-width: 0;
 }
 
 .stage-column-header {
@@ -817,8 +817,14 @@ button:hover {
 }
 
 .board-card-top h4 {
-  font-size: 1rem;
+  font-size: 0.95rem;
   line-height: 1.15;
+}
+
+.board-card .pill,
+.board-card .board-card-status,
+.board-card .action-btn {
+  font-size: 0.8rem;
 }
 
 .board-card-meta,
@@ -1136,6 +1142,10 @@ dialog::backdrop {
     grid-template-columns: 1fr 1fr;
   }
 
+  .stage-board {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .split-grid,
   .dialog-grid {
     grid-template-columns: 1fr;
@@ -1185,6 +1195,34 @@ dialog::backdrop {
     grid-template-columns: 1fr;
   }
 
+  .stage-board {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .stage-column {
+    min-height: 300px;
+  }
+
+  .stage-column-body {
+    gap: 8px;
+  }
+
+  .board-card {
+    padding: 12px;
+  }
+
+  .board-card-top h4 {
+    font-size: 0.88rem;
+  }
+
+  .board-card .pill,
+  .board-card .board-card-status,
+  .board-card .action-btn,
+  .board-card-note {
+    font-size: 0.74rem;
+  }
+
   .inline-form {
     flex-direction: column;
   }
@@ -1196,5 +1234,11 @@ dialog::backdrop {
   .kpi-filters {
     width: 100%;
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .stage-column {
+    min-height: 270px;
   }
 }

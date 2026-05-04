@@ -538,6 +538,7 @@ const server = http.createServer(async (req, res) => {
         requestedBy: String(body.requestedBy || ""),
         jobAddress: String(body.jobAddress || ""),
         jobType: String(body.jobType || ""),
+        jobDescription: String(body.jobDescription || ""),
         priority: String(body.priority || "Medium"),
         dueAt: String(body.dueAt || body.scheduledStartAt || ""),
         assignmentAt: nowIso(),
@@ -578,6 +579,7 @@ const server = http.createServer(async (req, res) => {
         const previousAssignedTo = next.assignedTo;
         next.requestedBy = body.requestedBy ?? next.requestedBy;
         next.jobAddress = body.jobAddress ?? next.jobAddress;
+        next.jobDescription = body.jobDescription ?? next.jobDescription;
         next.assignedTo = body.assignedTo ?? next.assignedTo;
         next.dispatcherName = body.dispatcherName ?? next.dispatcherName;
         next.dispatcherPhone = body.dispatcherPhone ?? next.dispatcherPhone;

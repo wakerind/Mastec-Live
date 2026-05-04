@@ -22,10 +22,9 @@
 
       <nav class="nav" aria-label="Primary">
         <button class="nav-link active" data-screen="overview">Home Dashboard</button>
-        <button class="nav-link" data-screen="admin">Master Grid</button>
+        <button class="nav-link admin-only" data-screen="admin">Master Grid</button>
         <button class="nav-link" data-screen="assignment">Assignment</button>
-        <button class="nav-link field-only" data-screen="field">Field Portal</button>
-        <button class="nav-link" data-screen="history">History</button>
+        <button class="nav-link admin-only" data-screen="history">History</button>
         <button class="nav-link admin-only" data-screen="accounts">Accounts</button>
         <button class="nav-link admin-only" data-screen="leadership">KPIs</button>
       </nav>
@@ -187,36 +186,24 @@
         </section>
 
         <section class="screen" data-screen-panel="assignment">
-          <div class="content-grid assignment-grid">
-            <article class="panel panel-lg board-panel">
-              <div class="panel-header stacked-mobile">
-                <div>
-                  <p class="eyebrow">Lifecycle board</p>
-                  <h3>Stage board</h3>
-                </div>
-                <div class="filters">
-                  <select id="assignmentWindowFilter">
-                    <option value="all">All windows</option>
-                    <option value="Open">Open</option>
-                    <option value="Due Soon">Due Soon</option>
-                    <option value="Past Due">Past Due</option>
-                  </select>
-                  <input id="assignmentSearch" type="search" placeholder="Search assignee, market, contractor">
-                </div>
+          <article class="panel panel-lg full-width-panel board-panel">
+            <div class="panel-header stacked-mobile">
+              <div>
+                <p class="eyebrow">Lifecycle board</p>
+                <h3>Stage board</h3>
               </div>
-              <div class="stage-board" id="stageBoard"></div>
-            </article>
-
-            <article class="panel">
-              <div class="panel-header">
-                <div>
-                  <p class="eyebrow">Capacity</p>
-                  <h3>Available teams</h3>
-                </div>
+              <div class="filters">
+                <select id="assignmentWindowFilter">
+                  <option value="all">All windows</option>
+                  <option value="Open">Open</option>
+                  <option value="Due Soon">Due Soon</option>
+                  <option value="Past Due">Past Due</option>
+                </select>
+                <input id="assignmentSearch" type="search" placeholder="Search assignee, market, contractor">
               </div>
-              <div class="crew-list" id="crewList"></div>
-            </article>
-          </div>
+            </div>
+            <div class="stage-board stage-board-wide" id="stageBoard"></div>
+          </article>
         </section>
 
         <section class="screen" data-screen-panel="field">
@@ -331,36 +318,19 @@
         <label>Market<input name="market" required></label>
         <label>Requested by<input name="requestedBy" required></label>
         <label>Job address<input name="jobAddress" placeholder="123 Main St, Miami, FL 33177" required></label>
-        <label>Job type
-          <select name="jobType" required>
-            <option>Fiber Splice</option>
-            <option>Fiber Repair</option>
-            <option>New Install</option>
-            <option>Troubleshoot</option>
-            <option>Locate</option>
-            <option>Maintenance</option>
-            <option>Inspection</option>
-            <option>Transport</option>
-            <option>Power Upgrade</option>
-            <option>Small Cell</option>
-            <option>Tower Maintenance</option>
-          </select>
-        </label>
+        <label>Job type<input name="jobType" list="jobTypeOptions" placeholder="Type or choose a job type" required></label>
         <label>Due date<input name="dueAt" type="datetime-local" required></label>
         <label>Scheduled start<input name="scheduledStartAt" type="datetime-local" required></label>
-        <label>Assigned team or contractor<input name="assignedTo"></label>
+        <label>Assigned team or contractor<input name="assignedTo" list="crewOptions" placeholder="Search available teams"></label>
         <label>Admin who assigned<input name="dispatcherName" required></label>
         <label>Dispatcher phone<input name="dispatcherPhone" type="tel" placeholder="555-555-5555"></label>
-        <label>Priority
-          <select name="priority">
-            <option>High</option>
-            <option selected>Medium</option>
-            <option>Low</option>
-          </select>
-        </label>
+        <label>Priority<input name="priority" list="priorityOptions" value="Medium" required></label>
         <label>Job value ($)<input name="jobValue" type="number" min="0" step="1000" value="250000"></label>
         <label>Labor cost ($)<input name="laborCost" type="number" min="0" step="1000" value="140000"></label>
         <label>Planned hours<input name="plannedHours" type="number" min="0" step="1" value="40"></label>
+        <label class="span-2">Job description
+          <textarea name="jobDescription" rows="4" placeholder="Describe the work, expected scope, and any special crew instructions." required></textarea>
+        </label>
         <label class="span-2">Known blocker<input name="blockerReason" placeholder="Optional permit, access, staffing, or material blocker"></label>
       </div>
       <menu class="dialog-actions">
@@ -377,9 +347,7 @@
         <button class="icon-btn" type="button" id="closeAssignDialog" aria-label="Close">x</button>
       </div>
       <input type="hidden" name="jobId">
-      <label>Assign to
-        <select name="assignedTo" id="assignCrewSelect" required></select>
-      </label>
+      <label>Assign to<input name="assignedTo" id="assignCrewSelect" list="assignCrewOptions" placeholder="Search available teams" required></label>
       <menu class="dialog-actions">
         <button class="secondary-btn" type="button" id="cancelAssignDialog">Cancel</button>
         <button class="primary-btn" type="submit">Assign job</button>
@@ -395,30 +363,10 @@
       </div>
       <input type="hidden" name="jobId">
       <div class="dialog-grid">
-        <label>Update type
-          <select name="updateType">
-            <option value="Work performed">Work performed</option>
-            <option value="Dispatched">Dispatched</option>
-            <option value="Crew started job">Crew started job</option>
-            <option value="Progress update">Progress update</option>
-            <option value="Material update">Material update</option>
-            <option value="Safety update">Safety update</option>
-            <option value="Blocker">Blocker</option>
-            <option value="Closeout">Closeout</option>
-          </select>
-        </label>
-        <label>Work done
-          <select name="workDone">
-            <option value="">Select work done</option>
-            <option value="Splice completed">Splice completed</option>
-            <option value="Fiber tested">Fiber tested</option>
-            <option value="Drop installed">Drop installed</option>
-            <option value="Repair completed">Repair completed</option>
-            <option value="Locate performed">Locate performed</option>
-            <option value="Materials used">Materials used</option>
-            <option value="Inspection completed">Inspection completed</option>
-            <option value="Other">Other</option>
-          </select>
+        <label>Update type<input name="updateType" list="updateTypeOptions" required></label>
+        <label>Work done<input name="workDone" list="workDoneOptions" placeholder="Search work done"></label>
+        <label class="span-2">Search codes
+          <input name="codesUsedSearch" id="codesUsedSearch" placeholder="Type to filter code options">
         </label>
         <label class="span-2">Codes used
           <select name="codesUsed" multiple size="7">
@@ -481,25 +429,15 @@
         </div>
         <div class="detail-section" id="jobWorkflowControls">
           <p class="eyebrow">Workflow controls</p>
-          <label>Workflow step
-            <select name="lifecycleStage" id="jobDetailStageSelect"></select>
-          </label>
-          <label>Assigned to
-            <select name="assignedTo" id="jobDetailAssigneeSelect"></select>
-          </label>
+          <label>Workflow step<input name="lifecycleStage" id="jobDetailStageSelect" list="lifecycleStageOptions"></label>
+          <label>Assigned to<input name="assignedTo" id="jobDetailAssigneeSelect" list="detailCrewOptions" placeholder="Search available teams"></label>
           <label>Scheduled start
             <input name="scheduledStartAt" type="datetime-local">
           </label>
           <label>Due date
             <input name="dueAt" type="datetime-local">
           </label>
-          <label>Priority
-            <select name="priority">
-              <option>High</option>
-              <option>Medium</option>
-              <option>Low</option>
-            </select>
-          </label>
+          <label>Priority<input name="priority" list="priorityOptions"></label>
           <label class="checkbox-row">
             <input name="adminApproved" type="checkbox">
             <span>Admin signoff complete</span>
@@ -509,13 +447,13 @@
             <span>Final admin review complete</span>
           </label>
         </div>
+        <div class="detail-section hidden" id="jobFieldActions">
+          <p class="eyebrow">Job actions</p>
+          <div class="job-actions top-actions" id="jobFieldActionsList"></div>
+        </div>
         <div class="detail-section span-2">
           <p class="eyebrow">Update history</p>
           <div class="detail-stack" id="jobDetailUpdates"></div>
-        </div>
-        <div class="detail-section span-2 hidden" id="jobFieldActions">
-          <p class="eyebrow">Field actions</p>
-          <div class="job-actions" id="jobFieldActionsList"></div>
         </div>
       </div>
       <menu class="dialog-actions">
@@ -524,6 +462,53 @@
       </menu>
     </form>
   </dialog>
+
+  <datalist id="jobTypeOptions">
+    <option value="Fiber Splice"></option>
+    <option value="Fiber Repair"></option>
+    <option value="New Install"></option>
+    <option value="Troubleshoot"></option>
+    <option value="Locate"></option>
+    <option value="Maintenance"></option>
+    <option value="Inspection"></option>
+    <option value="Transport"></option>
+    <option value="Power Upgrade"></option>
+    <option value="Small Cell"></option>
+    <option value="Tower Maintenance"></option>
+  </datalist>
+
+  <datalist id="priorityOptions">
+    <option value="High"></option>
+    <option value="Medium"></option>
+    <option value="Low"></option>
+  </datalist>
+
+  <datalist id="updateTypeOptions">
+    <option value="Work performed"></option>
+    <option value="Dispatched"></option>
+    <option value="Crew started job"></option>
+    <option value="Progress update"></option>
+    <option value="Material update"></option>
+    <option value="Safety update"></option>
+    <option value="Blocker"></option>
+    <option value="Closeout"></option>
+  </datalist>
+
+  <datalist id="workDoneOptions">
+    <option value="Splice completed"></option>
+    <option value="Fiber tested"></option>
+    <option value="Drop installed"></option>
+    <option value="Repair completed"></option>
+    <option value="Locate performed"></option>
+    <option value="Materials used"></option>
+    <option value="Inspection completed"></option>
+    <option value="Other"></option>
+  </datalist>
+
+  <datalist id="crewOptions"></datalist>
+  <datalist id="assignCrewOptions"></datalist>
+  <datalist id="detailCrewOptions"></datalist>
+  <datalist id="lifecycleStageOptions"></datalist>
 
   <script src="app.js"></script>
 </body>
