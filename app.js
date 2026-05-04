@@ -67,6 +67,8 @@
     jobDetailUpdates: document.getElementById("jobDetailUpdates"),
     jobDetailStageSelect: document.getElementById("jobDetailStageSelect"),
     jobDetailAssigneeSelect: document.getElementById("jobDetailAssigneeSelect"),
+    jobWorkflowControls: document.getElementById("jobWorkflowControls"),
+    saveJobDetailButton: document.getElementById("saveJobDetailButton"),
     demoAdminCreds: document.getElementById("demoAdminCreds"),
     demoFieldCreds: document.getElementById("demoFieldCreds"),
     loginError: document.getElementById("loginError"),
@@ -620,8 +622,8 @@
             </tr>
             <tr class="sheet-action-row">
               <td><button class="sheet-inline-action" data-action="open-job" data-id="${job.id}">Open job</button></td>
-              <td>${!["Completed", "Closed"].includes(lifecycle) ? `<button class="sheet-inline-action" data-action="assign-job" data-id="${job.id}">Assign to</button>` : ""}</td>
-              <td>${!["Completed", "Closed"].includes(lifecycle) ? `<button class="sheet-inline-action" data-action="assign-fast" data-id="${job.id}">Quick assign</button>` : ""}</td>
+              <td>${appState.session?.role === "admin" && !["Completed", "Closed"].includes(lifecycle) ? `<button class="sheet-inline-action" data-action="assign-job" data-id="${job.id}">Assign to</button>` : ""}</td>
+              <td>${appState.session?.role === "admin" && !["Completed", "Closed"].includes(lifecycle) ? `<button class="sheet-inline-action" data-action="assign-fast" data-id="${job.id}">Quick assign</button>` : ""}</td>
               <td><button class="sheet-inline-action" data-action="log-update" data-id="${job.id}">Add update</button></td>
               <td>${appState.session?.role === "admin" && !isAdminApproved(job) ? `<button class="sheet-inline-action" data-action="admin-signoff" data-id="${job.id}">Admin signoff</button>` : ""}</td>
               <td><button class="sheet-inline-action" data-action="${job.blockerReason ? "clear-blocker" : "add-blocker"}" data-id="${job.id}">${job.blockerReason ? "Clear blocker" : "Add blocker"}</button></td>
@@ -709,12 +711,7 @@
         </div>
         <div class="job-actions">
           <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
-          ${!isAccepted(job) ? `<button class="action-btn" data-action="accept-job" data-id="${job.id}">Accept job</button>` : ""}
-          ${["Scheduled", "Not Started"].includes(getOperationalStatus(job)) && !hasStarted(job)
-            ? `<button class="action-btn" data-action="start-job" data-id="${job.id}">Start job</button>`
-            : ""}
           ${canFieldComplete(job) ? `<button class="action-btn" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}
-          <button class="action-btn" data-action="update-hours" data-id="${job.id}">Log hours</button>
           <button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>
           ${job.blockerReason
             ? `<button class="action-btn" data-action="clear-blocker" data-id="${job.id}">Clear blocker</button>`
@@ -743,6 +740,12 @@
           <span class="pill">Assigned: ${crew.assigned}</span>
           <span class="pill">Capacity: ${crew.capacity}</span>
         </div>
+        <div class="crew-meta">
+          <span class="pill">Contact: ${crew.contactName || "Dispatch team"}</span>
+          <span class="pill">${crew.contactPhone || "Phone not listed"}</span>
+        </div>
+        <p class="muted">${crew.contactEmail || "Email not listed"}</p>
+        <p class="muted">${crew.coverageArea || "Availability is based on current schedule conflicts, not location restrictions."}</p>
         <p class="muted">${crew.note}</p>
       </article>
     `).join("");
@@ -872,14 +875,20 @@
   }
 
   function fillAssigneeSelect(selectElement, currentValue, job) {
-    const crewOptions = job
-      ? getAvailableCrewsForJob(job)
+    const allCrewOptions = job
+      ? appState.crews.map((crew) => ({
+          ...crew,
+          conflicts: getCrewScheduleConflicts(job, crew.name)
+        }))
       : appState.crews.map((crew) => ({ ...crew, conflicts: [] }));
+    const crewOptions = allCrewOptions.filter((crew) => crew.conflicts.length === 0);
     selectElement.innerHTML = [`<option value="">Unassigned</option>`]
-      .concat(crewOptions.map((crew) => `<option value="${crew.name}">${crew.name} | ${crew.available} available</option>`))
+      .concat(crewOptions.map((crew) => `<option value="${crew.name}">${crew.name} | ${crew.available} available | ${crew.contactName || "Dispatch contact"}</option>`))
       .join("");
     if (currentValue && !crewOptions.some((crew) => crew.name === currentValue)) {
-      selectElement.innerHTML += `<option value="${currentValue}">${currentValue} | Schedule conflict</option>`;
+      const currentCrew = allCrewOptions.find((crew) => crew.name === currentValue);
+      const reason = currentCrew?.conflicts?.length ? `Schedule conflict with ${currentCrew.conflicts.map((conflict) => conflict.title).join(", ")}` : "Currently unavailable";
+      selectElement.innerHTML += `<option value="${currentValue}">${currentValue} | ${reason}</option>`;
     }
     selectElement.value = currentValue || "";
   }
@@ -901,7 +910,8 @@
         <span class="muted">Team accepted: ${isAccepted(job) ? "Complete" : "Pending"}</span><br>
         <span class="muted">Final admin review: ${isAdminReviewed(job) ? "Complete" : "Pending"}</span><br>
         <span class="muted">Started: ${hasStarted(job) ? "Yes" : "No"}</span><br>
-        <span class="muted">Blocker: ${job.blockerReason ? `${job.blockerStage || job.lifecycleStage} | ${job.blockerReason}` : "None"}</span>
+        <span class="muted">Blocker: ${job.blockerReason ? `${job.blockerStage || job.lifecycleStage} | ${job.blockerReason}` : "None"}</span><br>
+        <span class="muted">Assignment note: Vendor availability is currently based on schedule conflicts, not location restrictions.</span>
       </article>
     `;
     elements.jobDetailStageSelect.innerHTML = editableLifecycleStages.map((stage) => `<option value="${stage}">${stage}</option>`).join("");
@@ -911,6 +921,8 @@
     elements.jobDetailForm.elements.priority.value = job.priority || "Medium";
     elements.jobDetailForm.elements.adminApproved.checked = isAdminApproved(job);
     elements.jobDetailForm.elements.adminReviewed.checked = isAdminReviewed(job);
+    elements.jobWorkflowControls.classList.toggle("hidden", !isAdmin);
+    elements.saveJobDetailButton.classList.toggle("hidden", !isAdmin);
     elements.jobDetailStageSelect.disabled = !isAdmin;
     elements.jobDetailAssigneeSelect.disabled = !isAdmin;
     elements.jobDetailForm.elements.scheduledStartAt.disabled = !isAdmin;
@@ -935,6 +947,10 @@
     }
 
     if (action === "assign-fast") {
+      if (appState.session?.role !== "admin") {
+        window.alert("Only administrators can assign jobs.");
+        return;
+      }
       const availableCrew = getAvailableCrewsForJob(job)
         .sort((a, b) => {
           if (b.available !== a.available) {
@@ -961,6 +977,10 @@
     }
 
     if (action === "assign-job") {
+      if (appState.session?.role !== "admin") {
+        window.alert("Only administrators can assign jobs.");
+        return;
+      }
       openAssignDialog(jobId);
       return;
     }
@@ -985,23 +1005,6 @@
       await updateJob(jobId, {
         adminApproved: true,
         issue: "Admin signoff completed."
-      });
-      return;
-    }
-
-    if (action === "accept-job") {
-      await updateJob(jobId, {
-        accepted: true,
-        issue: "Assigned team accepted the job."
-      });
-      return;
-    }
-
-    if (action === "start-job") {
-      await updateJob(jobId, {
-        started: true,
-        lifecycleStage: "In Progress",
-        issue: "Field crew started the job."
       });
       return;
     }
@@ -1060,21 +1063,6 @@
       return;
     }
 
-    if (action === "update-hours") {
-      const input = window.prompt("Enter actual hours worked", String(job.actualHours || 0));
-      if (input === null) {
-        return;
-      }
-      const actualHours = Number(input);
-      if (Number.isNaN(actualHours) || actualHours < 0) {
-        window.alert("Please enter a valid hour value.");
-        return;
-      }
-      await updateJob(jobId, {
-        actualHours,
-        issue: `Hours updated to ${actualHours}.`
-      });
-    }
   }
 
   function registerEvents() {

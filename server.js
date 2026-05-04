@@ -71,6 +71,15 @@ function getOperationalStatus(job) {
   if (rawStage === "Admin Approved") {
     return job.assignedTo ? "Assigned" : "Uploaded";
   }
+  if (rawStage === "Assigned" && job.acceptedAt) {
+    if (job.startedAt) {
+      return "In Progress";
+    }
+    if (isScheduledPastDue(job.scheduledStartAt)) {
+      return "Not Started";
+    }
+    return "Scheduled";
+  }
   if (rawStage === "Scheduled" && !job.startedAt && new Date(job.scheduledStartAt).getTime() <= Date.now()) {
     return "Not Started";
   }
@@ -454,6 +463,7 @@ const server = http.createServer(async (req, res) => {
 
       const next = { ...existing };
       if (user.role === "admin") {
+        const previousAssignedTo = next.assignedTo;
         next.assignedTo = body.assignedTo ?? next.assignedTo;
         next.scheduledStartAt = body.scheduledStartAt ?? next.scheduledStartAt;
         next.priority = body.priority ?? next.priority;
@@ -468,6 +478,21 @@ const server = http.createServer(async (req, res) => {
         if (body.adminReviewed === false) {
           next.adminReviewedAt = null;
         }
+
+        if (next.assignedTo && next.assignedTo !== previousAssignedTo) {
+          if (next.adminApproved) {
+            next.acceptedAt = next.acceptedAt || nowIso();
+            if (next.scheduledStartAt) {
+              next.lifecycleStage = isScheduledPastDue(next.scheduledStartAt)
+                ? (next.startedAt ? "In Progress" : "Scheduled")
+                : "Assigned";
+            } else {
+              next.lifecycleStage = "Assigned";
+            }
+          } else if (next.lifecycleStage === "Uploaded") {
+            next.lifecycleStage = "Uploaded";
+          }
+        }
       }
 
       if (body.accepted === true && next.assignedTo) {
@@ -476,7 +501,7 @@ const server = http.createServer(async (req, res) => {
           if (isScheduledPastDue(next.scheduledStartAt)) {
             next.startedAt = next.startedAt || nowIso();
             next.lifecycleStage = "In Progress";
-          } else if (next.lifecycleStage === "Assigned") {
+          } else if (next.lifecycleStage === "Assigned" || next.lifecycleStage === "Uploaded") {
             next.lifecycleStage = "Scheduled";
           }
         }
@@ -501,6 +526,20 @@ const server = http.createServer(async (req, res) => {
 
       if (!next.assignedTo && next.lifecycleStage !== "Uploaded") {
         next.lifecycleStage = "Uploaded";
+      }
+
+      if (next.assignedTo && next.adminApproved && next.lifecycleStage === "Uploaded") {
+        next.lifecycleStage = isScheduledPastDue(next.scheduledStartAt) ? "Scheduled" : "Assigned";
+      }
+
+      if (next.assignedTo && next.acceptedAt) {
+        if (next.startedAt) {
+          next.lifecycleStage = "In Progress";
+        } else if (isScheduledPastDue(next.scheduledStartAt)) {
+          next.lifecycleStage = "Scheduled";
+        } else if (next.lifecycleStage === "Assigned") {
+          next.lifecycleStage = "Scheduled";
+        }
       }
 
       if (next.lifecycleStage !== "Uploaded" && !next.adminApproved) {
