@@ -858,17 +858,35 @@
     const actualValue = Number(actual || 0);
     const expectedValue = Number(expected || 0);
     const max = Math.max(actualValue, expectedValue, 1);
-    const actualWidth = Math.max((actualValue / max) * 100, 4);
-    const expectedWidth = Math.max((expectedValue / max) * 100, 4);
+    const actualHeight = Math.max((actualValue / max) * 100, actualValue > 0 ? 10 : 0);
+    const expectedHeight = Math.max((expectedValue / max) * 100, expectedValue > 0 ? 10 : 0);
     return `
-      <div class="kpi-bar-group">
+      <div class="kpi-chart-card">
         <div class="kpi-bar-label">
           <strong>${label}</strong>
           <span class="muted">Actual ${actualValue.toFixed(1)}h vs expected ${expectedValue.toFixed(1)}h</span>
         </div>
-        <div class="kpi-bar-track">
-          <span class="kpi-bar expected" style="width:${expectedWidth}%"></span>
-          <span class="kpi-bar actual" style="width:${actualWidth}%"></span>
+        <div class="kpi-chart">
+          <div class="kpi-chart-bars">
+            <div class="kpi-chart-column">
+              <div class="kpi-chart-plot">
+                <span class="kpi-chart-bar expected" style="height:${expectedHeight}%"></span>
+              </div>
+              <div class="kpi-chart-meta">
+                <strong>${expectedValue.toFixed(1)}h</strong>
+                <span>Expected</span>
+              </div>
+            </div>
+            <div class="kpi-chart-column">
+              <div class="kpi-chart-plot">
+                <span class="kpi-chart-bar actual" style="height:${actualHeight}%"></span>
+              </div>
+              <div class="kpi-chart-meta">
+                <strong>${actualValue.toFixed(1)}h</strong>
+                <span>Actual</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     `;

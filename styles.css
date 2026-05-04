@@ -428,7 +428,7 @@ button:hover {
   gap: 10px;
 }
 
-.kpi-bar-group {
+.kpi-chart-card {
   margin-top: 14px;
   display: grid;
   gap: 8px;
@@ -441,28 +441,63 @@ button:hover {
   flex-wrap: wrap;
 }
 
-.kpi-bar-track {
-  position: relative;
-  height: 16px;
-  border-radius: 999px;
-  background: #e6edf3;
-  overflow: hidden;
+.kpi-chart {
+  padding: 14px 16px 10px;
+  border-radius: 18px;
+  background:
+    linear-gradient(to top, rgba(100, 116, 139, 0.12) 1px, transparent 1px) 0 100% / 100% 25%,
+    #f8fbfd;
+  border: 1px solid var(--line);
 }
 
-.kpi-bar {
-  position: absolute;
-  left: 0;
-  top: 0;
-  height: 100%;
-  border-radius: inherit;
+.kpi-chart-bars {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(90px, 140px));
+  gap: 22px;
+  align-items: end;
+  justify-content: start;
 }
 
-.kpi-bar.expected {
-  background: rgba(37, 99, 235, 0.22);
+.kpi-chart-column {
+  display: grid;
+  gap: 10px;
 }
 
-.kpi-bar.actual {
-  background: linear-gradient(90deg, #0f766e, #22c55e);
+.kpi-chart-plot {
+  height: 170px;
+  display: flex;
+  align-items: end;
+  justify-content: center;
+}
+
+.kpi-chart-bar {
+  width: 54px;
+  border-radius: 18px 18px 8px 8px;
+  min-height: 0;
+  box-shadow: inset 0 -1px 0 rgba(255,255,255,0.28);
+}
+
+.kpi-chart-bar.expected {
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.5), rgba(37, 99, 235, 0.88));
+}
+
+.kpi-chart-bar.actual {
+  background: linear-gradient(180deg, #34d399, #0f766e);
+}
+
+.kpi-chart-meta {
+  display: grid;
+  gap: 2px;
+  text-align: center;
+}
+
+.kpi-chart-meta strong {
+  font-family: "Bahnschrift", "Arial Narrow", sans-serif;
+}
+
+.kpi-chart-meta span {
+  color: var(--muted);
+  font-size: 0.88rem;
 }
 
 .inline-form {
