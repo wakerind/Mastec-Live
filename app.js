@@ -854,38 +854,47 @@
     return Number((valid.reduce((sum, value) => sum + value, 0) / valid.length).toFixed(2));
   }
 
-  function renderBarRow(label, actual, expected) {
-    const actualValue = Number(actual || 0);
-    const expectedValue = Number(expected || 0);
-    const max = Math.max(actualValue, expectedValue, 1);
-    const actualHeight = Math.max((actualValue / max) * 100, actualValue > 0 ? 10 : 0);
-    const expectedHeight = Math.max((expectedValue / max) * 100, expectedValue > 0 ? 10 : 0);
+  function renderCycleLineChart(label, points) {
+    const values = points.map((point) => Number(point.value || 0));
+    const max = Math.max(...values, 1);
+    const width = 260;
+    const height = 92;
+    const leftPad = 10;
+    const rightPad = 10;
+    const topPad = 10;
+    const bottomPad = 18;
+    const usableWidth = width - leftPad - rightPad;
+    const usableHeight = height - topPad - bottomPad;
+    const chartPoints = points.map((point, index) => {
+      const x = leftPad + (usableWidth * index) / Math.max(points.length - 1, 1);
+      const normalized = Number(point.value || 0) / max;
+      const y = topPad + usableHeight - normalized * usableHeight;
+      return {
+        ...point,
+        x,
+        y,
+        display: typeof point.value === "number" ? `${point.value.toFixed(1)}h` : "n/a"
+      };
+    });
+    const polyline = chartPoints.map((point) => `${point.x},${point.y}`).join(" ");
     return `
       <div class="kpi-chart-card">
         <div class="kpi-bar-label">
           <strong>${label}</strong>
-          <span class="muted">Actual ${actualValue.toFixed(1)}h vs expected ${expectedValue.toFixed(1)}h</span>
+          <span class="muted">Cycle time in hours by workflow step</span>
         </div>
-        <div class="kpi-chart">
-          <div class="kpi-chart-bars">
-            <div class="kpi-chart-column">
-              <div class="kpi-chart-plot">
-                <span class="kpi-chart-bar expected" style="height:${expectedHeight}%"></span>
+        <div class="kpi-line-chart">
+          <svg viewBox="0 0 ${width} ${height}" class="kpi-line-svg" aria-hidden="true">
+            <polyline class="kpi-line-path" points="${polyline}"></polyline>
+            ${chartPoints.map((point) => `<circle class="kpi-line-dot" cx="${point.x}" cy="${point.y}" r="4"></circle>`).join("")}
+          </svg>
+          <div class="kpi-line-labels">
+            ${chartPoints.map((point) => `
+              <div class="kpi-line-label">
+                <strong>${point.display}</strong>
+                <span>${point.label}</span>
               </div>
-              <div class="kpi-chart-meta">
-                <strong>${expectedValue.toFixed(1)}h</strong>
-                <span>Expected</span>
-              </div>
-            </div>
-            <div class="kpi-chart-column">
-              <div class="kpi-chart-plot">
-                <span class="kpi-chart-bar actual" style="height:${actualHeight}%"></span>
-              </div>
-              <div class="kpi-chart-meta">
-                <strong>${actualValue.toFixed(1)}h</strong>
-                <span>Actual</span>
-              </div>
-            </div>
+            `).join("")}
           </div>
         </div>
       </div>
@@ -910,9 +919,16 @@
             <span class="pill">${row.status}</span>
             <span class="pill">Last move ${formatDateTime(row.latestStageAt)}</span>
           </div>
-          ${renderBarRow("Field cycle", row.fieldExecutionHours || 0, row.expectedHours || 0)}
+          ${renderCycleLineChart("Cycle timing", [
+            { label: "Uploaded", value: row.adminAssignmentHours || 0 },
+            { label: "Assigned", value: row.assignedToScheduleHours || 0 },
+            { label: "Scheduled", value: row.fieldExecutionHours || 0 },
+            { label: "Completed", value: row.adminCloseHours || 0 },
+            { label: "Closed", value: row.closedLoopHours || 0 }
+          ])}
           <div class="kpi-row">
             <span class="pill">Admin assignment: ${row.adminAssignmentHours ?? "n/a"}h</span>
+            <span class="pill">Team accept/schedule: ${row.assignedToScheduleHours ?? "n/a"}h</span>
             <span class="pill">Field completion: ${row.fieldExecutionHours ?? "n/a"}h</span>
             <span class="pill">Admin close: ${row.adminCloseHours ?? "n/a"}h</span>
           </div>
@@ -935,8 +951,10 @@
       avgExpectedHours: average(rows.map((row) => row.expectedHours)),
       avgActualHours: average(rows.map((row) => row.actualHours)),
       avgAdminAssignmentHours: average(rows.map((row) => row.adminAssignmentHours)),
+      avgAssignedToScheduleHours: average(rows.map((row) => row.assignedToScheduleHours)),
       avgFieldExecutionHours: average(rows.map((row) => row.fieldExecutionHours)),
-      avgAdminCloseHours: average(rows.map((row) => row.adminCloseHours))
+      avgAdminCloseHours: average(rows.map((row) => row.adminCloseHours)),
+      avgClosedLoopHours: average(rows.map((row) => row.closedLoopHours))
     }));
 
     const summaryItems = group === "contractors"
@@ -957,9 +975,16 @@
             ${summary ? `<span class="pill">Blocked: ${summary.blockedRate}%</span>` : ""}
             ${summary ? `<span class="pill">Margin/job: ${formatCurrency(summary.avgMargin)}</span>` : ""}
           </div>
-          ${renderBarRow("Field cycle average", row.avgFieldExecutionHours || 0, row.avgExpectedHours || 0)}
+          ${renderCycleLineChart("Cycle timing average", [
+            { label: "Uploaded", value: row.avgAdminAssignmentHours || 0 },
+            { label: "Assigned", value: row.avgAssignedToScheduleHours || 0 },
+            { label: "Scheduled", value: row.avgFieldExecutionHours || 0 },
+            { label: "Completed", value: row.avgAdminCloseHours || 0 },
+            { label: "Closed", value: row.avgClosedLoopHours || 0 }
+          ])}
           <div class="kpi-row">
             <span class="pill">Admin assignment: ${row.avgAdminAssignmentHours ?? "n/a"}h</span>
+            <span class="pill">Team accept/schedule: ${row.avgAssignedToScheduleHours ?? "n/a"}h</span>
             <span class="pill">Field completion: ${row.avgFieldExecutionHours ?? "n/a"}h</span>
             <span class="pill">Admin close: ${row.avgAdminCloseHours ?? "n/a"}h</span>
             <span class="pill">Pool average actual: ${row.avgActualHours ?? "n/a"}h</span>
@@ -1243,6 +1268,7 @@
         adminApproved: true,
         issue: "Admin signoff completed."
       });
+      window.alert("Job was approved and is ready for assignment.");
       return;
     }
 
@@ -1251,6 +1277,7 @@
         accepted: true,
         issue: "Assigned team accepted the job."
       });
+      window.alert("Job was accepted.");
       return;
     }
 
@@ -1259,9 +1286,13 @@
       if (rejectionReason === null) {
         return;
       }
+      if (!String(rejectionReason).trim()) {
+        window.alert("A rejection reason is required.");
+        return;
+      }
       await updateJob(jobId, {
         rejected: true,
-        rejectionReason,
+        rejectionReason: String(rejectionReason).trim(),
         issue: rejectionReason
           ? `Rejected by field team: ${rejectionReason}`
           : "Rejected by field team for immediate admin review."
@@ -1416,6 +1447,7 @@
       elements.jobDialog.close();
       setScreen("admin");
       await refreshApp();
+      window.alert("Job was uploaded.");
     });
 
     elements.inviteForm.addEventListener("submit", async (event) => {
@@ -1483,7 +1515,11 @@
         adminReviewed: form.get("adminReviewed") === "on",
         issue: assignedTo ? `Updated in job workspace. Assigned to ${assignedTo}.` : "Updated in job workspace."
       });
+      const adminReviewed = form.get("adminReviewed") === "on";
       elements.jobDetailDialog.close();
+      if (adminReviewed) {
+        window.alert("Final admin review completed. Job was closed.");
+      }
     });
 
     elements.jobDetailForm.elements.scheduledStartAt.addEventListener("input", refreshJobDetailAssignees);

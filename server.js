@@ -315,8 +315,10 @@ function buildCycleAnalytics(jobs, stageEvents) {
     const lastClosed = [...ordered].reverse().find((event) => event.stage === "Closed");
 
     const adminAssignmentHours = diffHours(job.createdAt, lastAssigned?.enteredAt);
+    const assignedToScheduleHours = diffHours(lastAssigned?.enteredAt, lastScheduled?.enteredAt);
     const fieldExecutionHours = diffHours(lastScheduled?.enteredAt, lastCompleted?.enteredAt);
     const adminCloseHours = diffHours(lastCompleted?.enteredAt, lastClosed?.enteredAt);
+    const closedLoopHours = adminCloseHours;
     const expectedHours = Number(job.plannedHours || 0);
     const actualHours = Number(job.actualHours || 0);
 
@@ -329,8 +331,10 @@ function buildCycleAnalytics(jobs, stageEvents) {
       expectedHours,
       actualHours,
       adminAssignmentHours,
+      assignedToScheduleHours,
       fieldExecutionHours,
       adminCloseHours,
+      closedLoopHours,
       latestStageAt: ordered.length ? ordered[ordered.length - 1].enteredAt : job.createdAt
     };
   });
