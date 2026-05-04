@@ -248,21 +248,17 @@
                 <p class="eyebrow">Leadership review</p>
                 <h3>KPI scorecards</h3>
               </div>
-              <div class="filters">
+              <div class="filters kpi-filters">
                 <select id="kpiGroupFilter">
-                  <option value="teams">Teams</option>
-                  <option value="contractors">Contractors</option>
-                  <option value="jobs">Jobs</option>
+                  <option value="teams">Team view</option>
+                  <option value="contractors">Contractor view</option>
+                  <option value="jobs">Job view</option>
                 </select>
-                <select id="kpiTimeFilter">
-                  <option value="week">Week</option>
-                  <option value="day">Day</option>
-                  <option value="month">Month</option>
-                  <option value="year">Year</option>
+                <select id="kpiEntityFilter">
+                  <option value="all">All items</option>
                 </select>
                 <input id="kpiDateFrom" type="date" aria-label="KPI from date">
                 <input id="kpiDateTo" type="date" aria-label="KPI to date">
-                <input id="kpiSearch" type="search" placeholder="Filter team or job">
               </div>
             </div>
             <div class="kpi-list" id="kpiList"></div>

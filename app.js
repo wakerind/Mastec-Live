@@ -43,10 +43,9 @@
     fieldStatusFilter: document.getElementById("fieldStatusFilter"),
     fieldSearch: document.getElementById("fieldSearch"),
     kpiGroupFilter: document.getElementById("kpiGroupFilter"),
-    kpiTimeFilter: document.getElementById("kpiTimeFilter"),
+    kpiEntityFilter: document.getElementById("kpiEntityFilter"),
     kpiDateFrom: document.getElementById("kpiDateFrom"),
     kpiDateTo: document.getElementById("kpiDateTo"),
-    kpiSearch: document.getElementById("kpiSearch"),
     navLinks: document.querySelectorAll(".nav-link"),
     screens: document.querySelectorAll(".screen"),
     openJobDialog: document.getElementById("openJobDialog"),
@@ -700,11 +699,45 @@
         query: elements.fieldSearch.value.trim().toLowerCase()
       },
       kpiGroup: elements.kpiGroupFilter.value,
-      kpiTime: elements.kpiTimeFilter.value,
-      kpiQuery: elements.kpiSearch.value.trim().toLowerCase(),
+      kpiEntity: elements.kpiEntityFilter.value,
       kpiDateFrom: elements.kpiDateFrom.value,
       kpiDateTo: elements.kpiDateTo.value
     };
+  }
+
+  function populateKpiEntityFilter() {
+    const group = elements.kpiGroupFilter.value;
+    let options = [];
+    if (group === "jobs") {
+      options = appState.jobs.map((job) => ({
+        value: String(job.id),
+        label: `${job.title} | ${job.market}`
+      }));
+    } else if (group === "contractors") {
+      options = (appState.kpis.contractors || []).map((item) => ({
+        value: item.name,
+        label: item.name
+      }));
+    } else {
+      options = (appState.kpis.teams || []).map((item) => ({
+        value: item.name,
+        label: item.name
+      }));
+    }
+    const currentValue = elements.kpiEntityFilter.value;
+    const defaultLabel = group === "jobs"
+      ? "All jobs"
+      : group === "contractors"
+        ? "All contractors"
+        : "All teams";
+    elements.kpiEntityFilter.innerHTML = [`<option value="all">${defaultLabel}</option>`]
+      .concat(options.map((option) => `<option value="${option.value}">${option.label}</option>`))
+      .join("");
+    if (currentValue && options.some((option) => option.value === currentValue)) {
+      elements.kpiEntityFilter.value = currentValue;
+    } else {
+      elements.kpiEntityFilter.value = "all";
+    }
   }
 
   function showLoginState() {
@@ -1135,13 +1168,18 @@
     `;
   }
 
-  function renderKpis(group, timeframe, query, fromDate, toDate) {
+  function renderKpis(group, entity, fromDate, toDate) {
     const cycleRows = (appState.kpis.cycleRows || []).filter((row) => {
-      const haystack = `${row.title} ${row.assignedTo} ${row.market}`.toLowerCase();
-      const matchesDate = fromDate || toDate
-        ? isWithinDateRange(row.scheduledStartAt, fromDate, toDate)
-        : matchesTimeframe(row.latestStageAt, timeframe);
-      return matchesDate && (!query || haystack.includes(query));
+      const matchesDate = !fromDate && !toDate
+        ? true
+        : isWithinDateRange(row.scheduledStartAt, fromDate, toDate);
+      if (!matchesDate) {
+        return false;
+      }
+      if (group === "jobs") {
+        return entity === "all" || String(row.jobId) === String(entity);
+      }
+      return true;
     });
     const poolBaseline = computeCycleBaseline(cycleRows);
 
@@ -1178,9 +1216,18 @@
       return;
     }
 
+    const allowedNames = new Set(
+      (group === "contractors" ? (appState.kpis.contractors || []) : (appState.kpis.teams || [])).map((item) => item.name)
+    );
     const grouped = new Map();
     cycleRows.forEach((row) => {
       const key = row.assignedTo || "Unassigned";
+      if (!allowedNames.has(key)) {
+        return;
+      }
+      if (entity !== "all" && key !== entity) {
+        return;
+      }
       const current = grouped.get(key) || [];
       current.push(row);
       grouped.set(key, current);
@@ -1199,8 +1246,8 @@
     }));
 
     const summaryItems = group === "contractors"
-      ? (appState.kpis.contractors || []).filter((item) => (!query || item.name.toLowerCase().includes(query)))
-      : (appState.kpis.teams || []).filter((item) => (!query || item.name.toLowerCase().includes(query)));
+      ? (appState.kpis.contractors || [])
+      : (appState.kpis.teams || []);
 
     elements.kpiList.innerHTML = summaryRows.length ? summaryRows.map((row) => {
       const summary = summaryItems.find((item) => item.name === row.name);
@@ -1235,7 +1282,7 @@
           </div>
         </article>
       `;
-    }).join("") : emptyState("No KPI data yet for the selected timeframe.");
+    }).join("") : emptyState("No KPI data yet for the selected filters.");
   }
 
   async function loadAdminData() {
@@ -1290,8 +1337,9 @@
     renderMasterGrid(filters.intake);
     renderStageBoard(filters.assignment);
     renderCrews();
+    populateKpiEntityFilter();
     renderFieldJobs(filters.field);
-    renderKpis(filters.kpiGroup, filters.kpiTime, filters.kpiQuery, filters.kpiDateFrom, filters.kpiDateTo);
+    renderKpis(filters.kpiGroup, filters.kpiEntity, filters.kpiDateFrom, filters.kpiDateTo);
   }
 
   async function login(email, password) {
@@ -1646,11 +1694,15 @@
       elements.fieldStatusFilter,
       elements.fieldSearch,
       elements.kpiGroupFilter,
-      elements.kpiTimeFilter,
+      elements.kpiEntityFilter,
       elements.kpiDateFrom,
-      elements.kpiDateTo,
-      elements.kpiSearch
+      elements.kpiDateTo
     ].forEach((control) => control.addEventListener("input", renderApp));
+
+    elements.kpiGroupFilter.addEventListener("change", () => {
+      populateKpiEntityFilter();
+      renderApp();
+    });
 
     elements.openJobDialog.addEventListener("click", () => elements.jobDialog.showModal());
     elements.exportCsvButton.addEventListener("click", downloadCycleExport);
