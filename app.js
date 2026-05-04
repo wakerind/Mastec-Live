@@ -12,8 +12,9 @@
     session: null,
     jobs: [],
     updatesByJob: {},
+    stageEventsByJob: {},
     crews: [],
-    kpis: { teams: [], contractors: [] }
+    kpis: { teams: [], contractors: [], cycleRows: [] }
   };
 
   const elements = {
@@ -42,6 +43,8 @@
     fieldStatusFilter: document.getElementById("fieldStatusFilter"),
     fieldSearch: document.getElementById("fieldSearch"),
     kpiGroupFilter: document.getElementById("kpiGroupFilter"),
+    kpiTimeFilter: document.getElementById("kpiTimeFilter"),
+    kpiSearch: document.getElementById("kpiSearch"),
     navLinks: document.querySelectorAll(".nav-link"),
     screens: document.querySelectorAll(".screen"),
     openJobDialog: document.getElementById("openJobDialog"),
@@ -123,6 +126,9 @@
       return job.activityStatus;
     }
     const rawStage = job.lifecycleStage || "Uploaded";
+    if (rawStage === "Uploaded" && job.rejectedAt) {
+      return "Rejected";
+    }
     if (rawStage === "Accepted") {
       return "Assigned";
     }
@@ -140,6 +146,9 @@
       return job.displayStage;
     }
     const status = getOperationalStatus(job);
+    if (status === "Rejected") {
+      return "Uploaded";
+    }
     if (["Scheduled", "Not Started", "In Progress"].includes(status)) {
       return "Scheduled";
     }
@@ -228,6 +237,12 @@
       && getLifecycleStage(job) === "Assigned";
   }
 
+  function canFieldReject(job) {
+    return appState.session?.role === "field"
+      && ["Assigned", "Scheduled"].includes(getLifecycleStage(job))
+      && !["Completed", "Closed"].includes(getLifecycleStage(job));
+  }
+
   function buildRequirementBadges(job) {
     const badges = [];
     badges.push(`<span class="pill ${isAdminApproved(job) ? "requirement-ready" : "requirement-pending"}">Admin signoff ${isAdminApproved(job) ? "done" : "pending"}</span>`);
@@ -251,6 +266,10 @@
 
   function getJobUpdates(jobId) {
     return appState.updatesByJob?.[jobId] || [];
+  }
+
+  function getJobStageEvents(jobId) {
+    return appState.stageEventsByJob?.[jobId] || [];
   }
 
   function getJobWindow(job, overrides = {}) {
@@ -333,6 +352,11 @@
   function sortJobs(items) {
     const { key, direction } = intakeSort;
     return [...items].sort((left, right) => {
+      const leftRejected = getOperationalStatus(left) === "Rejected" ? 1 : 0;
+      const rightRejected = getOperationalStatus(right) === "Rejected" ? 1 : 0;
+      if (leftRejected !== rightRejected) {
+        return rightRejected - leftRejected;
+      }
       const leftUpdate = getLatestUpdate(left.id);
       const rightUpdate = getLatestUpdate(right.id);
       const valueMap = {
@@ -390,6 +414,26 @@
                 `).join("")}
               </div>
             ` : (update.attachmentPath ? `<a class="update-link" href="${update.attachmentPath}" target="_blank" rel="noreferrer">Open ${update.attachmentName || "attachment"}</a>` : "")}
+          </article>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function renderStageHistoryPreview(jobId) {
+    const events = getJobStageEvents(jobId).slice(0, 8);
+    if (!events.length) {
+      return `<div class="update-list"><p class="muted">No stage history recorded yet.</p></div>`;
+    }
+    return `
+      <div class="update-list">
+        ${events.map((event) => `
+          <article class="update-card">
+            <div class="update-card-header">
+              <strong>${event.stage}</strong>
+              <span class="muted">${formatDateTime(event.enteredAt)}</span>
+            </div>
+            <p class="muted">${event.actorName || "System"} | ${event.actorRole || "workflow"}</p>
           </article>
         `).join("")}
       </div>
@@ -461,7 +505,9 @@
         status: elements.fieldStatusFilter.value,
         query: elements.fieldSearch.value.trim().toLowerCase()
       },
-      kpiGroup: elements.kpiGroupFilter.value
+      kpiGroup: elements.kpiGroupFilter.value,
+      kpiTime: elements.kpiTimeFilter.value,
+      kpiQuery: elements.kpiSearch.value.trim().toLowerCase()
     };
   }
 
@@ -661,7 +707,16 @@
     });
 
     const columns = visibleLifecycleStages.map((stage) => {
-      const stageItems = items.filter((job) => getLifecycleStage(job) === stage);
+      const stageItems = items
+        .filter((job) => getLifecycleStage(job) === stage)
+        .sort((left, right) => {
+          const leftRejected = getOperationalStatus(left) === "Rejected" ? 1 : 0;
+          const rightRejected = getOperationalStatus(right) === "Rejected" ? 1 : 0;
+          if (leftRejected !== rightRejected) {
+            return rightRejected - leftRejected;
+          }
+          return new Date(left.scheduledStartAt) - new Date(right.scheduledStartAt);
+        });
       return `
         <section class="stage-column" data-stage="${stage}">
           <header class="stage-column-header">
@@ -726,6 +781,7 @@
         <div class="job-actions">
           <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
           ${canFieldAccept(job) ? `<button class="action-btn" data-action="accept-job" data-id="${job.id}">Accept job</button>` : ""}
+          ${canFieldReject(job) ? `<button class="action-btn" data-action="reject-job" data-id="${job.id}">Reject job</button>` : ""}
           ${canFieldComplete(job) ? `<button class="action-btn" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}
           <button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>
           ${job.blockerReason
@@ -767,23 +823,132 @@
     `).join("");
   }
 
-  function renderKpis(group) {
-    const items = appState.kpis[group] || [];
-    elements.kpiList.innerHTML = items.length ? items.map((item) => `
-      <article class="kpi-card">
-        <div class="kpi-card-header">
-          <h4>${item.name}</h4>
-          <span class="pill">Sample size: ${item.sampleSize}</span>
+  function matchesTimeframe(value, timeframe) {
+    if (!value) {
+      return false;
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return false;
+    }
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const days = diffMs / (1000 * 60 * 60 * 24);
+    if (timeframe === "day") {
+      return days <= 1;
+    }
+    if (timeframe === "week") {
+      return days <= 7;
+    }
+    if (timeframe === "month") {
+      return days <= 31;
+    }
+    return days <= 366;
+  }
+
+  function average(values) {
+    const valid = values.filter((value) => typeof value === "number" && !Number.isNaN(value));
+    if (!valid.length) {
+      return null;
+    }
+    return Number((valid.reduce((sum, value) => sum + value, 0) / valid.length).toFixed(2));
+  }
+
+  function renderBarRow(label, actual, expected) {
+    const actualValue = Number(actual || 0);
+    const expectedValue = Number(expected || 0);
+    const max = Math.max(actualValue, expectedValue, 1);
+    const actualWidth = Math.max((actualValue / max) * 100, 4);
+    const expectedWidth = Math.max((expectedValue / max) * 100, 4);
+    return `
+      <div class="kpi-bar-group">
+        <div class="kpi-bar-label">
+          <strong>${label}</strong>
+          <span class="muted">Actual ${actualValue.toFixed(1)}h vs expected ${expectedValue.toFixed(1)}h</span>
         </div>
-        <div class="kpi-row">
-          <span class="pill">Jobs/week: ${item.jobsPerWeek}</span>
-          <span class="pill">Avg hours: ${item.avgCompletionHours}</span>
-          <span class="pill">On-time: ${item.onTimeStartRate}%</span>
-          <span class="pill">Blocked: ${item.blockedRate}%</span>
-          <span class="pill">Margin/job: ${formatCurrency(item.avgMargin)}</span>
+        <div class="kpi-bar-track">
+          <span class="kpi-bar expected" style="width:${expectedWidth}%"></span>
+          <span class="kpi-bar actual" style="width:${actualWidth}%"></span>
         </div>
-      </article>
-    `).join("") : emptyState("No KPI data yet.");
+      </div>
+    `;
+  }
+
+  function renderKpis(group, timeframe, query) {
+    const cycleRows = (appState.kpis.cycleRows || []).filter((row) => {
+      const haystack = `${row.title} ${row.assignedTo} ${row.market}`.toLowerCase();
+      return matchesTimeframe(row.latestStageAt, timeframe) && (!query || haystack.includes(query));
+    });
+
+    if (group === "jobs") {
+      elements.kpiList.innerHTML = cycleRows.length ? cycleRows.map((row) => `
+        <article class="kpi-card">
+          <div class="kpi-card-header">
+            <h4>${row.title}</h4>
+            <span class="pill">${row.assignedTo}</span>
+          </div>
+          <div class="kpi-row">
+            <span class="pill">${row.market}</span>
+            <span class="pill">${row.status}</span>
+            <span class="pill">Last move ${formatDateTime(row.latestStageAt)}</span>
+          </div>
+          ${renderBarRow("Field cycle", row.fieldExecutionHours || 0, row.expectedHours || 0)}
+          <div class="kpi-row">
+            <span class="pill">Admin assignment: ${row.adminAssignmentHours ?? "n/a"}h</span>
+            <span class="pill">Field completion: ${row.fieldExecutionHours ?? "n/a"}h</span>
+            <span class="pill">Admin close: ${row.adminCloseHours ?? "n/a"}h</span>
+          </div>
+        </article>
+      `).join("") : emptyState("No KPI timing rows match the current filters.");
+      return;
+    }
+
+    const grouped = new Map();
+    cycleRows.forEach((row) => {
+      const key = row.assignedTo || "Unassigned";
+      const current = grouped.get(key) || [];
+      current.push(row);
+      grouped.set(key, current);
+    });
+
+    const summaryRows = [...grouped.entries()].map(([name, rows]) => ({
+      name,
+      sampleSize: rows.length,
+      avgExpectedHours: average(rows.map((row) => row.expectedHours)),
+      avgActualHours: average(rows.map((row) => row.actualHours)),
+      avgAdminAssignmentHours: average(rows.map((row) => row.adminAssignmentHours)),
+      avgFieldExecutionHours: average(rows.map((row) => row.fieldExecutionHours)),
+      avgAdminCloseHours: average(rows.map((row) => row.adminCloseHours))
+    }));
+
+    const summaryItems = group === "contractors"
+      ? (appState.kpis.contractors || []).filter((item) => (!query || item.name.toLowerCase().includes(query)))
+      : (appState.kpis.teams || []).filter((item) => (!query || item.name.toLowerCase().includes(query)));
+
+    elements.kpiList.innerHTML = summaryRows.length ? summaryRows.map((row) => {
+      const summary = summaryItems.find((item) => item.name === row.name);
+      return `
+        <article class="kpi-card">
+          <div class="kpi-card-header">
+            <h4>${row.name}</h4>
+            <span class="pill">Sample size: ${row.sampleSize}</span>
+          </div>
+          <div class="kpi-row">
+            ${summary ? `<span class="pill">Jobs/week: ${summary.jobsPerWeek}</span>` : ""}
+            ${summary ? `<span class="pill">On-time: ${summary.onTimeStartRate}%</span>` : ""}
+            ${summary ? `<span class="pill">Blocked: ${summary.blockedRate}%</span>` : ""}
+            ${summary ? `<span class="pill">Margin/job: ${formatCurrency(summary.avgMargin)}</span>` : ""}
+          </div>
+          ${renderBarRow("Field cycle average", row.avgFieldExecutionHours || 0, row.avgExpectedHours || 0)}
+          <div class="kpi-row">
+            <span class="pill">Admin assignment: ${row.avgAdminAssignmentHours ?? "n/a"}h</span>
+            <span class="pill">Field completion: ${row.avgFieldExecutionHours ?? "n/a"}h</span>
+            <span class="pill">Admin close: ${row.avgAdminCloseHours ?? "n/a"}h</span>
+            <span class="pill">Pool average actual: ${row.avgActualHours ?? "n/a"}h</span>
+          </div>
+        </article>
+      `;
+    }).join("") : emptyState("No KPI data yet for the selected timeframe.");
   }
 
   async function loadAdminData() {
@@ -839,7 +1004,7 @@
     renderStageBoard(filters.assignment);
     renderCrews();
     renderFieldJobs(filters.field);
-    renderKpis(filters.kpiGroup);
+    renderKpis(filters.kpiGroup, filters.kpiTime, filters.kpiQuery);
   }
 
   async function login(email, password) {
@@ -946,10 +1111,20 @@
     elements.jobDetailForm.elements.priority.disabled = !isAdmin;
     elements.jobDetailForm.elements.adminApproved.disabled = !isAdmin;
     elements.jobDetailForm.elements.adminReviewed.disabled = !isAdmin;
-    elements.jobDetailUpdates.innerHTML = renderUpdatesPreview(job.id);
+    elements.jobDetailUpdates.innerHTML = `
+      <div class="detail-stack">
+        <p class="eyebrow">Cycle history</p>
+        ${renderStageHistoryPreview(job.id)}
+      </div>
+      <div class="detail-stack">
+        <p class="eyebrow">Updates</p>
+        ${renderUpdatesPreview(job.id)}
+      </div>
+    `;
     const needsUpdateBeforeComplete = isAccepted(job) && ["Scheduled", "Not Started", "In Progress"].includes(getOperationalStatus(job)) && getJobUpdates(job.id).length === 0;
     elements.jobFieldActionsList.innerHTML = isAdmin ? "" : `
       ${canFieldAccept(job) ? `<button class="action-btn" type="button" data-action="accept-job" data-id="${job.id}">Accept job</button>` : ""}
+      ${canFieldReject(job) ? `<button class="action-btn" type="button" data-action="reject-job" data-id="${job.id}">Reject job</button>` : ""}
       ${canFieldComplete(job) ? `<button class="action-btn" type="button" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}
       <button class="action-btn" type="button" data-action="log-update" data-id="${job.id}">Add update</button>
       ${job.blockerReason
@@ -1061,6 +1236,22 @@
       return;
     }
 
+    if (action === "reject-job") {
+      const rejectionReason = window.prompt("Why is the team rejecting this job?", job.rejectionReason || "");
+      if (rejectionReason === null) {
+        return;
+      }
+      await updateJob(jobId, {
+        rejected: true,
+        rejectionReason,
+        issue: rejectionReason
+          ? `Rejected by field team: ${rejectionReason}`
+          : "Rejected by field team for immediate admin review."
+      });
+      window.alert("Job was rejected and returned for immediate admin review.");
+      return;
+    }
+
     if (action === "complete-job") {
       await updateJob(jobId, {
         lifecycleStage: "Completed",
@@ -1168,7 +1359,9 @@
       elements.assignmentSearch,
       elements.fieldStatusFilter,
       elements.fieldSearch,
-      elements.kpiGroupFilter
+      elements.kpiGroupFilter,
+      elements.kpiTimeFilter,
+      elements.kpiSearch
     ].forEach((control) => control.addEventListener("input", renderApp));
 
     elements.openJobDialog.addEventListener("click", () => elements.jobDialog.showModal());

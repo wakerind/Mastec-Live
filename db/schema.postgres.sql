@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   accepted_at TIMESTAMPTZ,
   started_at TIMESTAMPTZ,
   admin_reviewed_at TIMESTAMPTZ,
+  rejected_at TIMESTAMPTZ,
+  rejection_reason TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_by_user_id BIGINT REFERENCES users(id)
 );
@@ -83,6 +85,8 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS admin_approved BOOLEAN NOT NULL DEFAUL
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS admin_reviewed_at TIMESTAMPTZ;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS rejection_reason TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS job_updates (
   id BIGSERIAL PRIMARY KEY,
@@ -109,9 +113,20 @@ CREATE TABLE IF NOT EXISTS job_update_attachments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS job_stage_events (
+  id BIGSERIAL PRIMARY KEY,
+  job_id BIGINT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  stage TEXT NOT NULL,
+  entered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  exited_at TIMESTAMPTZ,
+  actor_role TEXT NOT NULL DEFAULT '',
+  actor_name TEXT NOT NULL DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_scheduled_start_at ON jobs (scheduled_start_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_assigned_to ON jobs (assigned_to);
 CREATE INDEX IF NOT EXISTS idx_jobs_intake_status ON jobs (intake_status);
 CREATE INDEX IF NOT EXISTS idx_jobs_field_status ON jobs (field_status);
 CREATE INDEX IF NOT EXISTS idx_job_updates_job_id ON job_updates (job_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_job_update_attachments_update_id ON job_update_attachments (job_update_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_job_stage_events_job_id ON job_stage_events (job_id, entered_at DESC);

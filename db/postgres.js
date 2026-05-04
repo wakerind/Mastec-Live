@@ -87,6 +87,8 @@ async function ensureJobColumns(pool) {
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS admin_reviewed_at TIMESTAMPTZ");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS rejection_reason TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS contact_name TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS contact_email TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS contact_phone TEXT NOT NULL DEFAULT ''");
@@ -132,7 +134,7 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         : assignedTo
           ? "Assigned"
           : "Uploaded";
-      await pool.query(`
+      const inserted = await pool.query(`
         INSERT INTO jobs (
           title, market, requested_by, job_type, priority, intake_status, scheduled_start_at,
           assigned_to, field_status, completion, budget, job_value, labor_cost, planned_hours,
@@ -167,6 +169,10 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         nowIso(),
         admin.rows[0].id
       ]);
+      await pool.query(`
+        INSERT INTO job_stage_events (job_id, stage, entered_at, exited_at, actor_role, actor_name)
+        VALUES ($1, $2, $3, NULL, $4, $5)
+      `, [Number(inserted.rows[0].id), lifecycleStage, nowIso(), "system", "Seed import"]);
     }
   }
 
@@ -278,6 +284,8 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
           accepted_at AS "acceptedAt",
           started_at AS "startedAt",
           admin_reviewed_at AS "adminReviewedAt",
+          rejected_at AS "rejectedAt",
+          COALESCE(rejection_reason, '') AS "rejectionReason",
           issue,
           quality_score AS "qualityScore",
           duration_variance AS "durationVariance",
@@ -311,6 +319,8 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
           accepted_at AS "acceptedAt",
           started_at AS "startedAt",
           admin_reviewed_at AS "adminReviewedAt",
+          rejected_at AS "rejectedAt",
+          COALESCE(rejection_reason, '') AS "rejectionReason",
           issue,
           quality_score AS "qualityScore",
           duration_variance AS "durationVariance"
@@ -360,16 +370,21 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         nowIso(),
         createdByUserId
       ]);
-      return Number(result.rows[0].id);
+      const jobId = Number(result.rows[0].id);
+      await pool.query(`
+        INSERT INTO job_stage_events (job_id, stage, entered_at, exited_at, actor_role, actor_name)
+        VALUES ($1, $2, $3, NULL, $4, $5)
+      `, [jobId, lifecycleStage, nowIso(), "admin", "Job created"]);
+      return jobId;
     },
     async updateJob(jobId, next) {
       await pool.query(`
         UPDATE jobs
         SET intake_status = $1, assigned_to = $2, scheduled_start_at = $3::timestamptz, priority = $4,
             field_status = $5, completion = $6, issue = $7, job_value = $8, labor_cost = $9,
-            planned_hours = $10, actual_hours = $11, blocker_reason = $12, blocker_stage = $13, lifecycle_stage = $14, admin_approved = $15, accepted_at = $16, started_at = $17, admin_reviewed_at = $18, duration_variance = $19,
-            budget = $20
-        WHERE id = $21
+            planned_hours = $10, actual_hours = $11, blocker_reason = $12, blocker_stage = $13, lifecycle_stage = $14, admin_approved = $15, accepted_at = $16, started_at = $17, admin_reviewed_at = $18, rejected_at = $19, rejection_reason = $20, duration_variance = $21,
+            budget = $22
+        WHERE id = $23
       `, [
         next.intakeStatus,
         next.assignedTo || null,
@@ -389,10 +404,42 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         next.acceptedAt || null,
         next.startedAt || null,
         next.adminReviewedAt || null,
+        next.rejectedAt || null,
+        next.rejectionReason || "",
         Math.round(Number(next.durationVariance || 0)),
         Number(next.jobValue || 0) / 1000000,
         jobId
       ]);
+    },
+    async listStageEvents(jobIds) {
+      if (!jobIds.length) {
+        return [];
+      }
+      return (await pool.query(`
+        SELECT
+          id::int AS id,
+          job_id::int AS "jobId",
+          stage,
+          entered_at AS "enteredAt",
+          exited_at AS "exitedAt",
+          actor_role AS "actorRole",
+          actor_name AS "actorName"
+        FROM job_stage_events
+        WHERE job_id = ANY($1::int[])
+        ORDER BY entered_at DESC, id DESC
+      `, [jobIds])).rows;
+    },
+    async recordStageTransition({ jobId, toStage, actorRole, actorName, changedAt }) {
+      const timestamp = changedAt || nowIso();
+      await pool.query(`
+        UPDATE job_stage_events
+        SET exited_at = $1
+        WHERE job_id = $2 AND exited_at IS NULL
+      `, [timestamp, jobId]);
+      await pool.query(`
+        INSERT INTO job_stage_events (job_id, stage, entered_at, exited_at, actor_role, actor_name)
+        VALUES ($1, $2, $3, NULL, $4, $5)
+      `, [jobId, toStage, timestamp, actorRole || "", actorName || ""]);
     },
     async listCrewsWithUtilization() {
       return listCrewsWithUtilization();

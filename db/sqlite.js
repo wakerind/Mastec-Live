@@ -195,6 +195,8 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       accepted_at TEXT,
       started_at TEXT,
       admin_reviewed_at TEXT,
+      rejected_at TEXT,
+      rejection_reason TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       created_by_user_id INTEGER REFERENCES users(id)
     );
@@ -219,6 +221,16 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       attachment_mime TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS job_stage_events (
+      id INTEGER PRIMARY KEY,
+      job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+      stage TEXT NOT NULL,
+      entered_at TEXT NOT NULL,
+      exited_at TEXT,
+      actor_role TEXT NOT NULL DEFAULT '',
+      actor_name TEXT NOT NULL DEFAULT ''
+    );
   `);
 
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN job_value REAL NOT NULL DEFAULT 0");
@@ -232,6 +244,8 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN accepted_at TEXT");
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN started_at TEXT");
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN admin_reviewed_at TEXT");
+  addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN rejected_at TEXT");
+  addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN rejection_reason TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN contact_name TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN contact_email TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN contact_phone TEXT NOT NULL DEFAULT ''");
@@ -275,7 +289,7 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         : assignedTo
           ? "Assigned"
           : "Uploaded";
-      insertJob.run(
+      const result = insertJob.run(
         title,
         market,
         requestedBy,
@@ -304,6 +318,10 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         nowIso(),
         admin.id
       );
+      db.prepare(`
+        INSERT INTO job_stage_events (job_id, stage, entered_at, exited_at, actor_role, actor_name)
+        VALUES (?, ?, ?, NULL, ?, ?)
+      `).run(Number(result.lastInsertRowid), lifecycleStage, nowIso(), "system", "Seed import");
     });
   }
 
@@ -394,6 +412,8 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
           accepted_at AS acceptedAt,
           started_at AS startedAt,
           admin_reviewed_at AS adminReviewedAt,
+          rejected_at AS rejectedAt,
+          COALESCE(rejection_reason, '') AS rejectionReason,
           issue,
           quality_score AS qualityScore,
           duration_variance AS durationVariance,
@@ -427,6 +447,8 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
           accepted_at AS acceptedAt,
           started_at AS startedAt,
           admin_reviewed_at AS adminReviewedAt,
+          rejected_at AS rejectedAt,
+          COALESCE(rejection_reason, '') AS rejectionReason,
           issue,
           quality_score AS qualityScore,
           duration_variance AS durationVariance
@@ -475,14 +497,19 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         nowIso(),
         createdByUserId
       );
-      return Number(result.lastInsertRowid);
+      const jobId = Number(result.lastInsertRowid);
+      db.prepare(`
+        INSERT INTO job_stage_events (job_id, stage, entered_at, exited_at, actor_role, actor_name)
+        VALUES (?, ?, ?, NULL, ?, ?)
+      `).run(jobId, lifecycleStage, nowIso(), "admin", "Job created");
+      return jobId;
     },
     async updateJob(jobId, next) {
       db.prepare(`
         UPDATE jobs
         SET intake_status = ?, assigned_to = ?, scheduled_start_at = ?, priority = ?,
             field_status = ?, completion = ?, issue = ?, job_value = ?, labor_cost = ?,
-            planned_hours = ?, actual_hours = ?, blocker_reason = ?, blocker_stage = ?, lifecycle_stage = ?, admin_approved = ?, accepted_at = ?, started_at = ?, admin_reviewed_at = ?, duration_variance = ?,
+            planned_hours = ?, actual_hours = ?, blocker_reason = ?, blocker_stage = ?, lifecycle_stage = ?, admin_approved = ?, accepted_at = ?, started_at = ?, admin_reviewed_at = ?, rejected_at = ?, rejection_reason = ?, duration_variance = ?,
             budget = ?
         WHERE id = ?
       `).run(
@@ -504,10 +531,43 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         next.acceptedAt || null,
         next.startedAt || null,
         next.adminReviewedAt || null,
+        next.rejectedAt || null,
+        next.rejectionReason || "",
         Math.round(Number(next.durationVariance || 0)),
         Number(next.jobValue || 0) / 1000000,
         jobId
       );
+    },
+    async listStageEvents(jobIds) {
+      if (!jobIds.length) {
+        return [];
+      }
+      const placeholders = jobIds.map(() => "?").join(", ");
+      return db.prepare(`
+        SELECT
+          id,
+          job_id AS jobId,
+          stage,
+          entered_at AS enteredAt,
+          exited_at AS exitedAt,
+          actor_role AS actorRole,
+          actor_name AS actorName
+        FROM job_stage_events
+        WHERE job_id IN (${placeholders})
+        ORDER BY datetime(entered_at) DESC, id DESC
+      `).all(...jobIds);
+    },
+    async recordStageTransition({ jobId, toStage, actorRole, actorName, changedAt }) {
+      const timestamp = changedAt || nowIso();
+      db.prepare(`
+        UPDATE job_stage_events
+        SET exited_at = ?
+        WHERE job_id = ? AND exited_at IS NULL
+      `).run(timestamp, jobId);
+      db.prepare(`
+        INSERT INTO job_stage_events (job_id, stage, entered_at, exited_at, actor_role, actor_name)
+        VALUES (?, ?, ?, NULL, ?, ?)
+      `).run(jobId, toStage, timestamp, actorRole || "", actorName || "");
     },
     async listCrewsWithUtilization() {
       return listCrewsWithUtilization(db);

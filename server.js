@@ -65,6 +65,9 @@ function createToken(prefix = "fs") {
 
 function getOperationalStatus(job) {
   const rawStage = job.lifecycleStage || "Uploaded";
+  if (rawStage === "Uploaded" && job.rejectedAt) {
+    return "Rejected";
+  }
   if (rawStage === "Accepted") {
     return "Assigned";
   }
@@ -88,6 +91,9 @@ function getOperationalStatus(job) {
 
 function currentLifecycle(job) {
   const status = getOperationalStatus(job);
+  if (status === "Rejected") {
+    return "Uploaded";
+  }
   if (["Scheduled", "Not Started", "In Progress"].includes(status)) {
     return "Scheduled";
   }
@@ -280,6 +286,58 @@ function computeKpis(jobs, crews) {
   return { teams, contractors };
 }
 
+function diffHours(startValue, endValue) {
+  if (!startValue || !endValue) {
+    return null;
+  }
+  const start = new Date(startValue).getTime();
+  const end = new Date(endValue).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) {
+    return null;
+  }
+  return Number(((end - start) / (1000 * 60 * 60)).toFixed(2));
+}
+
+function buildCycleAnalytics(jobs, stageEvents) {
+  const eventsByJob = new Map();
+  stageEvents.forEach((event) => {
+    if (!eventsByJob.has(event.jobId)) {
+      eventsByJob.set(event.jobId, []);
+    }
+    eventsByJob.get(event.jobId).push(event);
+  });
+
+  const rows = jobs.map((job) => {
+    const ordered = [...(eventsByJob.get(job.id) || [])].sort((left, right) => new Date(left.enteredAt) - new Date(right.enteredAt));
+    const lastAssigned = [...ordered].reverse().find((event) => event.stage === "Assigned");
+    const lastScheduled = [...ordered].reverse().find((event) => event.stage === "Scheduled");
+    const lastCompleted = [...ordered].reverse().find((event) => event.stage === "Completed");
+    const lastClosed = [...ordered].reverse().find((event) => event.stage === "Closed");
+
+    const adminAssignmentHours = diffHours(job.createdAt, lastAssigned?.enteredAt);
+    const fieldExecutionHours = diffHours(lastScheduled?.enteredAt, lastCompleted?.enteredAt);
+    const adminCloseHours = diffHours(lastCompleted?.enteredAt, lastClosed?.enteredAt);
+    const expectedHours = Number(job.plannedHours || 0);
+    const actualHours = Number(job.actualHours || 0);
+
+    return {
+      jobId: job.id,
+      title: job.title,
+      market: job.market,
+      assignedTo: job.assignedTo || "Unassigned",
+      status: getOperationalStatus(job),
+      expectedHours,
+      actualHours,
+      adminAssignmentHours,
+      fieldExecutionHours,
+      adminCloseHours,
+      latestStageAt: ordered.length ? ordered[ordered.length - 1].enteredAt : job.createdAt
+    };
+  });
+
+  return rows;
+}
+
 async function getAppState(forUser) {
   const crews = await db.listCrewsWithUtilization();
   const allJobs = await db.listJobs();
@@ -289,12 +347,20 @@ async function getAppState(forUser) {
     job.activityStatus = getOperationalStatus(job);
   });
   const updates = await db.listJobUpdates(jobs.map((job) => job.id));
+  const stageEvents = await db.listStageEvents(jobs.map((job) => job.id));
   const updatesByJob = Object.fromEntries(jobs.map((job) => [job.id, []]));
+  const stageEventsByJob = Object.fromEntries(jobs.map((job) => [job.id, []]));
   updates.forEach((update) => {
     if (!updatesByJob[update.jobId]) {
       updatesByJob[update.jobId] = [];
     }
     updatesByJob[update.jobId].push(update);
+  });
+  stageEvents.forEach((event) => {
+    if (!stageEventsByJob[event.jobId]) {
+      stageEventsByJob[event.jobId] = [];
+    }
+    stageEventsByJob[event.jobId].push(event);
   });
   return {
     session: {
@@ -305,11 +371,15 @@ async function getAppState(forUser) {
     },
     jobs,
     updatesByJob,
+    stageEventsByJob,
     crews,
     stageOptions: {
       lifecycle: lifecycleStages
     },
-    kpis: computeKpis(allJobs, crews)
+    kpis: {
+      ...computeKpis(allJobs, crews),
+      cycleRows: buildCycleAnalytics(jobs, stageEvents)
+    }
   };
 }
 
@@ -462,6 +532,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       const next = { ...existing };
+      const previousLifecycleStage = existing.lifecycleStage || "Uploaded";
       if (user.role === "admin") {
         const previousAssignedTo = next.assignedTo;
         next.assignedTo = body.assignedTo ?? next.assignedTo;
@@ -477,6 +548,10 @@ const server = http.createServer(async (req, res) => {
         }
         if (body.adminReviewed === false) {
           next.adminReviewedAt = null;
+          if (next.lifecycleStage === "Closed") {
+            next.lifecycleStage = "Completed";
+            next.issue = "Final admin review removed. Job moved back to completed.";
+          }
         }
         if (body.adminReviewed === true && ["Completed", "Admin Reviewed"].includes(next.lifecycleStage)) {
           next.lifecycleStage = "Closed";
@@ -484,6 +559,8 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (next.assignedTo && next.assignedTo !== previousAssignedTo) {
+          next.rejectedAt = null;
+          next.rejectionReason = "";
           if (next.adminApproved) {
             if (next.scheduledStartAt) {
               next.lifecycleStage = "Assigned";
@@ -500,8 +577,22 @@ const server = http.createServer(async (req, res) => {
         next.lifecycleStage = "Completed";
       }
 
+      if (user.role === "field" && body.rejected === true) {
+        next.rejectedAt = nowIso();
+        next.rejectionReason = String(body.rejectionReason || "").trim();
+        next.assignedTo = "";
+        next.acceptedAt = null;
+        next.startedAt = null;
+        next.lifecycleStage = "Uploaded";
+        next.issue = next.rejectionReason
+          ? `Rejected by field team: ${next.rejectionReason}`
+          : "Rejected by field team for immediate admin review.";
+      }
+
       if (body.accepted === true && next.assignedTo) {
         next.acceptedAt = next.acceptedAt || nowIso();
+        next.rejectedAt = null;
+        next.rejectionReason = "";
         if (next.scheduledStartAt && !["Completed", "Closed"].includes(next.lifecycleStage)) {
           next.lifecycleStage = "Scheduled";
         }
@@ -581,6 +672,11 @@ const server = http.createServer(async (req, res) => {
         next.blockerStage = "";
       }
 
+      if (next.lifecycleStage !== "Uploaded") {
+        next.rejectedAt = null;
+        next.rejectionReason = "";
+      }
+
       if (["Completed", "Closed"].includes(next.lifecycleStage)) {
         next.blockerReason = "";
         next.blockerStage = "";
@@ -591,6 +687,15 @@ const server = http.createServer(async (req, res) => {
       next.fieldStatus = getOperationalStatus(next);
 
       await db.updateJob(jobId, next);
+      if (next.lifecycleStage !== previousLifecycleStage) {
+        await db.recordStageTransition({
+          jobId,
+          toStage: next.lifecycleStage,
+          actorRole: user.role,
+          actorName: user.name,
+          changedAt: nowIso()
+        });
+      }
       sendJson(res, 200, { ok: true });
       return;
     }

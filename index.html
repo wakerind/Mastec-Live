@@ -193,6 +193,7 @@
                 <select id="fieldStatusFilter">
                   <option value="all">All live statuses</option>
                   <option value="Assigned">Assigned</option>
+                  <option value="Rejected">Rejected</option>
                   <option value="Scheduled">Scheduled</option>
                   <option value="Not Started">Not Started</option>
                   <option value="In Progress">In Progress</option>
@@ -248,7 +249,15 @@
                 <select id="kpiGroupFilter">
                   <option value="teams">Teams</option>
                   <option value="contractors">Contractors</option>
+                  <option value="jobs">Jobs</option>
                 </select>
+                <select id="kpiTimeFilter">
+                  <option value="week">Week</option>
+                  <option value="day">Day</option>
+                  <option value="month">Month</option>
+                  <option value="year">Year</option>
+                </select>
+                <input id="kpiSearch" type="search" placeholder="Filter team or job">
               </div>
             </div>
             <div class="kpi-list" id="kpiList"></div>
