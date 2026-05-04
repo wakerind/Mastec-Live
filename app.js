@@ -44,10 +44,14 @@
     fieldSearch: document.getElementById("fieldSearch"),
     kpiGroupFilter: document.getElementById("kpiGroupFilter"),
     kpiTimeFilter: document.getElementById("kpiTimeFilter"),
+    kpiDateFrom: document.getElementById("kpiDateFrom"),
+    kpiDateTo: document.getElementById("kpiDateTo"),
     kpiSearch: document.getElementById("kpiSearch"),
     navLinks: document.querySelectorAll(".nav-link"),
     screens: document.querySelectorAll(".screen"),
     openJobDialog: document.getElementById("openJobDialog"),
+    exportDateFrom: document.getElementById("exportDateFrom"),
+    exportDateTo: document.getElementById("exportDateTo"),
     exportCsvButton: document.getElementById("exportCsvButton"),
     refreshDataButton: document.getElementById("refreshDataButton"),
     jobDialog: document.getElementById("jobDialog"),
@@ -356,22 +360,68 @@
     return ((to - from) / (1000 * 60 * 60)).toFixed(2);
   }
 
-  function buildCycleExportRows() {
+  function normalizeRangeStart(value) {
+    if (!value) {
+      return null;
+    }
+    const date = new Date(`${value}T00:00:00`);
+    return Number.isNaN(date.getTime()) ? null : date.getTime();
+  }
+
+  function normalizeRangeEnd(value) {
+    if (!value) {
+      return null;
+    }
+    const date = new Date(`${value}T23:59:59.999`);
+    return Number.isNaN(date.getTime()) ? null : date.getTime();
+  }
+
+  function isWithinDateRange(value, fromValue, toValue) {
+    if (!value) {
+      return false;
+    }
+    const timestamp = new Date(value).getTime();
+    if (Number.isNaN(timestamp)) {
+      return false;
+    }
+    const from = normalizeRangeStart(fromValue);
+    const to = normalizeRangeEnd(toValue);
+    if (from !== null && timestamp < from) {
+      return false;
+    }
+    if (to !== null && timestamp > to) {
+      return false;
+    }
+    return true;
+  }
+
+  function fallbackStageEntries(job) {
+    return [
+      { stage: "Uploaded", enteredAt: job.createdAt || job.scheduledStartAt, actorRole: "system", actorName: "System" },
+      { stage: "Assigned", enteredAt: job.assignedAt || job.adminApprovedAt || job.acceptedAt, actorRole: "admin", actorName: "Administrator" },
+      { stage: "Scheduled", enteredAt: job.acceptedAt || job.startedAt || job.scheduledStartAt, actorRole: "field", actorName: job.assignedTo || "Field team" },
+      { stage: "Completed", enteredAt: job.completedAt, actorRole: "field", actorName: job.assignedTo || "Field team" },
+      { stage: "Closed", enteredAt: job.closedAt || job.adminReviewedAt, actorRole: "admin", actorName: "Administrator" }
+    ].filter((entry) => entry.enteredAt);
+  }
+
+  function buildCycleExportRows({ fromDate = "", toDate = "" } = {}) {
     const stageOrder = ["Uploaded", "Assigned", "Scheduled", "Completed", "Closed"];
     return appState.jobs.flatMap((job) => {
       const updates = getJobUpdates(job.id);
       const latestUpdate = getLatestUpdate(job.id);
-      const events = [...getJobStageEvents(job.id)]
-        .filter((event) => stageOrder.includes(event.toStage))
-        .sort((left, right) => new Date(left.changedAt) - new Date(right.changedAt));
+      const sourceEvents = getJobStageEvents(job.id).length ? getJobStageEvents(job.id) : fallbackStageEntries(job);
+      const events = [...sourceEvents]
+        .filter((event) => stageOrder.includes(event.stage))
+        .sort((left, right) => new Date(left.enteredAt) - new Date(right.enteredAt));
       const latestEventByStage = new Map();
       events.forEach((event) => {
-        latestEventByStage.set(event.toStage, event);
+        latestEventByStage.set(event.stage, event);
       });
       let previousEvent = null;
       return stageOrder.flatMap((stage) => {
         const event = latestEventByStage.get(stage);
-        if (!event) {
+        if (!event || !isWithinDateRange(event.enteredAt, fromDate, toDate)) {
           return [];
         }
         const row = {
@@ -385,10 +435,10 @@
           currentCycle: getLifecycleStage(job),
           currentStatus: getOperationalStatus(job),
           lastProcessedCycle: stage,
-          cycleTimestamp: event.changedAt,
-          previousCycle: previousEvent?.toStage || "",
-          previousCycleTimestamp: previousEvent?.changedAt || "",
-          durationHours: formatDurationHours(previousEvent?.changedAt, event.changedAt),
+          cycleTimestamp: event.enteredAt,
+          previousCycle: previousEvent?.stage || "",
+          previousCycleTimestamp: previousEvent?.enteredAt || "",
+          durationHours: formatDurationHours(previousEvent?.enteredAt, event.enteredAt),
           scheduledStartAt: job.scheduledStartAt,
           jobValue: Number(job.jobValue || 0),
           laborCost: Number(job.laborCost || 0),
@@ -415,9 +465,12 @@
   }
 
   function downloadCycleExport() {
-    const rows = buildCycleExportRows();
+    const rows = buildCycleExportRows({
+      fromDate: elements.exportDateFrom.value,
+      toDate: elements.exportDateTo.value
+    });
     if (!rows.length) {
-      window.alert("No cycle data is available to export yet.");
+      window.alert("No cycle data is available for the selected dates.");
       return;
     }
     const columns = [
@@ -645,7 +698,9 @@
       },
       kpiGroup: elements.kpiGroupFilter.value,
       kpiTime: elements.kpiTimeFilter.value,
-      kpiQuery: elements.kpiSearch.value.trim().toLowerCase()
+      kpiQuery: elements.kpiSearch.value.trim().toLowerCase(),
+      kpiDateFrom: elements.kpiDateFrom.value,
+      kpiDateTo: elements.kpiDateTo.value
     };
   }
 
@@ -1077,10 +1132,13 @@
     `;
   }
 
-  function renderKpis(group, timeframe, query) {
+  function renderKpis(group, timeframe, query, fromDate, toDate) {
     const cycleRows = (appState.kpis.cycleRows || []).filter((row) => {
       const haystack = `${row.title} ${row.assignedTo} ${row.market}`.toLowerCase();
-      return matchesTimeframe(row.latestStageAt, timeframe) && (!query || haystack.includes(query));
+      const matchesDate = fromDate || toDate
+        ? isWithinDateRange(row.latestStageAt, fromDate, toDate)
+        : matchesTimeframe(row.latestStageAt, timeframe);
+      return matchesDate && (!query || haystack.includes(query));
     });
     const poolBaseline = computeCycleBaseline(cycleRows);
 
@@ -1230,7 +1288,7 @@
     renderStageBoard(filters.assignment);
     renderCrews();
     renderFieldJobs(filters.field);
-    renderKpis(filters.kpiGroup, filters.kpiTime, filters.kpiQuery);
+    renderKpis(filters.kpiGroup, filters.kpiTime, filters.kpiQuery, filters.kpiDateFrom, filters.kpiDateTo);
   }
 
   async function login(email, password) {
@@ -1586,6 +1644,8 @@
       elements.fieldSearch,
       elements.kpiGroupFilter,
       elements.kpiTimeFilter,
+      elements.kpiDateFrom,
+      elements.kpiDateTo,
       elements.kpiSearch
     ].forEach((control) => control.addEventListener("input", renderApp));
 
@@ -1599,16 +1659,20 @@
     elements.closeUpdateDialog.addEventListener("click", () => elements.updateDialog.close());
     elements.cancelUpdateDialog.addEventListener("click", () => elements.updateDialog.close());
     elements.closeRejectDialog.addEventListener("click", () => {
-      elements.rejectError.textContent = "A reason is required.";
-      elements.rejectForm.elements.reason.focus();
+      elements.rejectError.textContent = "";
+      elements.rejectDialog.close();
     });
     elements.closeJobDetailDialog.addEventListener("click", () => elements.jobDetailDialog.close());
     elements.cancelJobDetailDialog.addEventListener("click", () => elements.jobDetailDialog.close());
 
-    elements.rejectDialog.addEventListener("cancel", (event) => {
-      event.preventDefault();
-      elements.rejectError.textContent = "A reason is required.";
-      elements.rejectForm.elements.reason.focus();
+    elements.rejectDialog.addEventListener("cancel", () => {
+      elements.rejectError.textContent = "";
+    });
+    elements.rejectDialog.addEventListener("click", (event) => {
+      if (event.target === elements.rejectDialog) {
+        elements.rejectError.textContent = "";
+        elements.rejectDialog.close();
+      }
     });
 
     elements.jobForm.addEventListener("submit", async (event) => {

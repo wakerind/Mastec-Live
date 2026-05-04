@@ -95,6 +95,8 @@
           </div>
           <div class="hero-actions">
             <button class="primary-btn admin-only" id="openJobDialog">Add job</button>
+            <input class="admin-only" id="exportDateFrom" type="date" aria-label="Export from date">
+            <input class="admin-only" id="exportDateTo" type="date" aria-label="Export to date">
             <button class="secondary-btn admin-only" id="exportCsvButton" type="button">Export cycle CSV</button>
             <button class="secondary-btn" id="refreshDataButton">Refresh data</button>
           </div>
@@ -258,6 +260,8 @@
                   <option value="month">Month</option>
                   <option value="year">Year</option>
                 </select>
+                <input id="kpiDateFrom" type="date" aria-label="KPI from date">
+                <input id="kpiDateTo" type="date" aria-label="KPI to date">
                 <input id="kpiSearch" type="search" placeholder="Filter team or job">
               </div>
             </div>
