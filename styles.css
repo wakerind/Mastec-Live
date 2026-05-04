@@ -478,48 +478,56 @@ button:hover {
   font-weight: 700;
 }
 
-.status.assigned,
-.status.approved,
-.status.completed,
-.status.closed,
-.status.scheduled {
-  color: var(--success);
-}
-
 .status.review,
 .status.submitted,
 .status.uploaded,
-.status.acknowledged,
-.status.en-route,
-.status.watch {
-  color: var(--warning);
-}
-
-.status.in-progress {
-  color: var(--info);
-}
-
 .status.blocked,
 .status.at-risk,
 .status.past-due {
   color: var(--danger);
 }
 
-.sheet-stage.assigned,
-.sheet-stage.approved,
-.sheet-stage.completed,
-.sheet-stage.closed,
-.sheet-stage.scheduled {
-  background: rgba(45, 122, 85, 0.12);
-  color: var(--success);
-}
-
 .sheet-stage.review,
 .sheet-stage.uploaded,
+.sheet-stage.blocked,
+.sheet-stage.at-risk,
+.sheet-stage.past-due {
+  background: rgba(187, 77, 62, 0.12);
+  color: var(--danger);
+}
+
+.status.assigned,
+.status.approved,
+.status.acknowledged,
+.status.en-route,
+.status.watch {
+  color: #9b7314;
+}
+
+.sheet-stage.assigned,
+.sheet-stage.approved,
 .sheet-stage.acknowledged,
-.sheet-stage.en-route {
+.sheet-stage.en-route,
+.sheet-stage.watch {
   background: rgba(213, 157, 32, 0.14);
   color: #9b7314;
+}
+
+.status.scheduled,
+.status.not-started,
+.status.admin-reviewed {
+  color: var(--info);
+}
+
+.sheet-stage.scheduled,
+.sheet-stage.not-started,
+.sheet-stage.admin-reviewed {
+  background: rgba(47, 109, 177, 0.12);
+  color: var(--info);
+}
+
+.status.in-progress {
+  color: var(--info);
 }
 
 .sheet-stage.in-progress {
@@ -527,9 +535,15 @@ button:hover {
   color: var(--info);
 }
 
-.sheet-stage.blocked {
-  background: rgba(187, 77, 62, 0.12);
-  color: var(--danger);
+.status.completed,
+.status.closed {
+  color: var(--success);
+}
+
+.sheet-stage.completed,
+.sheet-stage.closed {
+  background: rgba(45, 122, 85, 0.12);
+  color: var(--success);
 }
 
 .job-actions {
@@ -838,16 +852,11 @@ button:hover {
   gap: 18px;
 }
 
-.status.not-started,
-.sheet-stage.not-started {
-  background: rgba(187, 77, 62, 0.12);
-  color: var(--danger);
-}
-
-.status.admin-reviewed,
-.sheet-stage.admin-reviewed {
-  background: rgba(47, 109, 177, 0.12);
-  color: var(--info);
+.completion-hint {
+  margin: 12px 0 0;
+  color: #9b7314;
+  font-size: 0.92rem;
+  font-weight: 600;
 }
 
 .detail-section {

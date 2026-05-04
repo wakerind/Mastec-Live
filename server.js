@@ -492,6 +492,10 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      if (user.role === "field" && body.lifecycleStage === "Completed") {
+        next.lifecycleStage = "Completed";
+      }
+
       if (body.accepted === true && next.assignedTo) {
         next.acceptedAt = next.acceptedAt || nowIso();
         if (next.scheduledStartAt && !["Completed", "Closed"].includes(next.lifecycleStage)) {

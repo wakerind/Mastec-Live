@@ -676,7 +676,7 @@
                   <div class="board-card-top">
                     <div>
                       <h4>${job.title}</h4>
-                      <p class="board-card-status">${getOperationalStatus(job)}</p>
+                      <p class="board-card-status status ${getStatusClass(getOperationalStatus(job))}">${getOperationalStatus(job)}</p>
                     </div>
                   </div>
                   <div class="job-actions compact-actions">
@@ -701,7 +701,9 @@
       return statusMatch && (!filters.query || haystack.includes(filters.query));
     });
 
-    elements.fieldList.innerHTML = items.length ? items.map((job) => `
+    elements.fieldList.innerHTML = items.length ? items.map((job) => {
+      const needsUpdateBeforeComplete = isAccepted(job) && ["Scheduled", "Not Started", "In Progress"].includes(getOperationalStatus(job)) && getJobUpdates(job.id).length === 0;
+      return `
       <article class="job-card">
         <div class="job-card-header">
           <div>
@@ -730,12 +732,13 @@
             ? `<button class="action-btn" data-action="clear-blocker" data-id="${job.id}">Clear blocker</button>`
             : `<button class="action-btn" data-action="add-blocker" data-id="${job.id}">Report blocker</button>`}
         </div>
+        ${needsUpdateBeforeComplete ? `<p class="completion-hint">Add at least one update before completing this job.</p>` : ""}
         ${renderUpdatesPreview(job.id)}
         <div class="job-tags requirement-row">
           ${buildRequirementBadges(job)}
         </div>
       </article>
-    `).join("") : emptyState("No assigned field jobs match the current filters.");
+    `;}).join("") : emptyState("No assigned field jobs match the current filters.");
   }
 
   function renderCrews() {
@@ -944,6 +947,7 @@
     elements.jobDetailForm.elements.adminApproved.disabled = !isAdmin;
     elements.jobDetailForm.elements.adminReviewed.disabled = !isAdmin;
     elements.jobDetailUpdates.innerHTML = renderUpdatesPreview(job.id);
+    const needsUpdateBeforeComplete = isAccepted(job) && ["Scheduled", "Not Started", "In Progress"].includes(getOperationalStatus(job)) && getJobUpdates(job.id).length === 0;
     elements.jobFieldActionsList.innerHTML = isAdmin ? "" : `
       ${canFieldAccept(job) ? `<button class="action-btn" type="button" data-action="accept-job" data-id="${job.id}">Accept job</button>` : ""}
       ${canFieldComplete(job) ? `<button class="action-btn" type="button" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}
@@ -951,6 +955,7 @@
       ${job.blockerReason
         ? `<button class="action-btn" type="button" data-action="clear-blocker" data-id="${job.id}">Clear blocker</button>`
         : `<button class="action-btn" type="button" data-action="add-blocker" data-id="${job.id}">Report blocker</button>`}
+      ${needsUpdateBeforeComplete ? `<p class="completion-hint">Add at least one update before completing this job.</p>` : ""}
     `;
     elements.jobDetailDialog.showModal();
   }
