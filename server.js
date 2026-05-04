@@ -481,11 +481,8 @@ const server = http.createServer(async (req, res) => {
 
         if (next.assignedTo && next.assignedTo !== previousAssignedTo) {
           if (next.adminApproved) {
-            next.acceptedAt = next.acceptedAt || nowIso();
             if (next.scheduledStartAt) {
-              next.lifecycleStage = isScheduledPastDue(next.scheduledStartAt)
-                ? (next.startedAt ? "In Progress" : "Scheduled")
-                : "Assigned";
+              next.lifecycleStage = "Assigned";
             } else {
               next.lifecycleStage = "Assigned";
             }
@@ -498,12 +495,7 @@ const server = http.createServer(async (req, res) => {
       if (body.accepted === true && next.assignedTo) {
         next.acceptedAt = next.acceptedAt || nowIso();
         if (next.scheduledStartAt) {
-          if (isScheduledPastDue(next.scheduledStartAt)) {
-            next.startedAt = next.startedAt || nowIso();
-            next.lifecycleStage = "In Progress";
-          } else if (next.lifecycleStage === "Assigned" || next.lifecycleStage === "Uploaded") {
-            next.lifecycleStage = "Scheduled";
-          }
+          next.lifecycleStage = "Scheduled";
         }
       }
       if (body.started === true) {
@@ -529,7 +521,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (next.assignedTo && next.adminApproved && next.lifecycleStage === "Uploaded") {
-        next.lifecycleStage = isScheduledPastDue(next.scheduledStartAt) ? "Scheduled" : "Assigned";
+        next.lifecycleStage = "Assigned";
       }
 
       if (next.assignedTo && next.acceptedAt) {

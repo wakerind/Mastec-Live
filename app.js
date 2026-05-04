@@ -68,6 +68,8 @@
     jobDetailStageSelect: document.getElementById("jobDetailStageSelect"),
     jobDetailAssigneeSelect: document.getElementById("jobDetailAssigneeSelect"),
     jobWorkflowControls: document.getElementById("jobWorkflowControls"),
+    jobFieldActions: document.getElementById("jobFieldActions"),
+    jobFieldActionsList: document.getElementById("jobFieldActionsList"),
     saveJobDetailButton: document.getElementById("saveJobDetailButton"),
     demoAdminCreds: document.getElementById("demoAdminCreds"),
     demoFieldCreds: document.getElementById("demoFieldCreds"),
@@ -214,7 +216,16 @@
   }
 
   function canFieldComplete(job) {
-    return appState.session?.role === "field" && ["Scheduled", "Not Started", "In Progress"].includes(getOperationalStatus(job));
+    return appState.session?.role === "field"
+      && isAccepted(job)
+      && ["Scheduled", "Not Started", "In Progress"].includes(getOperationalStatus(job));
+  }
+
+  function canFieldAccept(job) {
+    return appState.session?.role === "field"
+      && Boolean(job.assignedTo)
+      && !isAccepted(job)
+      && getLifecycleStage(job) === "Assigned";
   }
 
   function buildRequirementBadges(job) {
@@ -711,6 +722,7 @@
         </div>
         <div class="job-actions">
           <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
+          ${canFieldAccept(job) ? `<button class="action-btn" data-action="accept-job" data-id="${job.id}">Accept job</button>` : ""}
           ${canFieldComplete(job) ? `<button class="action-btn" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}
           <button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>
           ${job.blockerReason
@@ -922,6 +934,7 @@
     elements.jobDetailForm.elements.adminApproved.checked = isAdminApproved(job);
     elements.jobDetailForm.elements.adminReviewed.checked = isAdminReviewed(job);
     elements.jobWorkflowControls.classList.toggle("hidden", !isAdmin);
+    elements.jobFieldActions.classList.toggle("hidden", isAdmin);
     elements.saveJobDetailButton.classList.toggle("hidden", !isAdmin);
     elements.jobDetailStageSelect.disabled = !isAdmin;
     elements.jobDetailAssigneeSelect.disabled = !isAdmin;
@@ -930,6 +943,14 @@
     elements.jobDetailForm.elements.adminApproved.disabled = !isAdmin;
     elements.jobDetailForm.elements.adminReviewed.disabled = !isAdmin;
     elements.jobDetailUpdates.innerHTML = renderUpdatesPreview(job.id);
+    elements.jobFieldActionsList.innerHTML = isAdmin ? "" : `
+      ${canFieldAccept(job) ? `<button class="action-btn" type="button" data-action="accept-job" data-id="${job.id}">Accept job</button>` : ""}
+      ${canFieldComplete(job) ? `<button class="action-btn" type="button" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}
+      <button class="action-btn" type="button" data-action="log-update" data-id="${job.id}">Add update</button>
+      ${job.blockerReason
+        ? `<button class="action-btn" type="button" data-action="clear-blocker" data-id="${job.id}">Clear blocker</button>`
+        : `<button class="action-btn" type="button" data-action="add-blocker" data-id="${job.id}">Report blocker</button>`}
+    `;
     elements.jobDetailDialog.showModal();
   }
 
@@ -1009,11 +1030,20 @@
       return;
     }
 
+    if (action === "accept-job") {
+      await updateJob(jobId, {
+        accepted: true,
+        issue: "Assigned team accepted the job."
+      });
+      return;
+    }
+
     if (action === "complete-job") {
       await updateJob(jobId, {
         lifecycleStage: "Completed",
         completion: 100,
         started: true,
+        accepted: true,
         issue: "Field crew marked the job complete."
       });
       return;
