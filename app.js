@@ -126,6 +126,18 @@
     }).format(date);
   }
 
+  function formatExcelDateTime(value) {
+    if (!value) {
+      return "";
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+    const pad = (number) => String(number).padStart(2, "0");
+    return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
   function formatCurrency(value) {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -520,55 +532,57 @@
       events.forEach((event) => {
         latestEventByStage.set(event.stage, event);
       });
-      let previousEvent = null;
-      return stageOrder.flatMap((stage) => {
-        const event = latestEventByStage.get(stage);
-        if (!event) {
-          return [];
-        }
-        const row = {
-          jobId: job.id,
-          jobTitle: job.title,
-          market: job.market,
-          jobAddress: job.jobAddress || "",
-          requestedBy: job.requestedBy,
-          jobType: job.jobType,
-          priority: job.priority,
-          teamName: job.assignedTo || "",
-          dispatcherName: job.dispatcherName || "",
-          dispatcherPhone: job.dispatcherPhone || "",
-          dueAt: job.dueAt || "",
-          assignmentAt: job.assignmentAt || "",
-          currentCycle: getLifecycleStage(job),
-          currentStatus: getOperationalStatus(job),
-          lastProcessedCycle: stage,
-          cycleTimestamp: event.enteredAt,
-          previousCycle: previousEvent?.stage || "",
-          previousCycleTimestamp: previousEvent?.enteredAt || "",
-          durationHours: formatDurationHours(previousEvent?.enteredAt, event.enteredAt),
-          scheduledStartAt: job.scheduledStartAt,
-          jobValue: Number(job.jobValue || 0),
-          laborCost: Number(job.laborCost || 0),
-          plannedHours: Number(job.plannedHours || 0),
-          actualHours: Number(job.actualHours || 0),
-          completionPercent: Number(job.completion || 0),
-          blockerStage: job.blockerStage || "",
-          blockerReason: job.blockerReason || "",
-          rejectionReason: job.rejectionReason || "",
-          adminApprovedAt: job.adminApprovedAt || "",
-          acceptedAt: job.acceptedAt || "",
-          dispatchedAt: job.dispatchedAt || "",
-          startedAt: job.startedAt || "",
-          completedAt: job.completedAt || "",
-          adminReviewedAt: job.adminReviewedAt || "",
-          closedAt: job.closedAt || "",
-          lastUpdateAt: latestUpdate?.createdAt || "",
-          lastUpdateNote: summarizeUpdate(latestUpdate),
-          totalUpdates: updates.length
-        };
-        previousEvent = event;
-        return [row];
-      });
+      const uploadedAt = latestEventByStage.get("Uploaded")?.enteredAt || job.createdAt || "";
+      const assignedAt = latestEventByStage.get("Assigned")?.enteredAt || job.assignmentAt || "";
+      const scheduledAt = latestEventByStage.get("Scheduled")?.enteredAt || job.scheduledStartAt || "";
+      const inProgressAt = latestEventByStage.get("In Progress")?.enteredAt || job.startedAt || "";
+      const completedAt = latestEventByStage.get("Completed")?.enteredAt || job.completedAt || "";
+      const closedAt = latestEventByStage.get("Closed")?.enteredAt || job.closedAt || job.adminReviewedAt || "";
+      const nonDispatchHours = hoursBetween(job.scheduledStartAt, job.dispatchedAt);
+      const fieldExecutionHours = hoursBetween(job.startedAt, job.completedAt);
+      const closeoutHours = hoursBetween(job.completedAt, closedAt);
+
+      return [{
+        jobId: job.id,
+        jobTitle: job.title,
+        market: job.market,
+        jobAddress: job.jobAddress || "",
+        requestedBy: job.requestedBy,
+        jobType: job.jobType,
+        priority: job.priority,
+        teamName: job.assignedTo || "",
+        dispatcherName: job.dispatcherName || "",
+        dispatcherPhone: job.dispatcherPhone || "",
+        currentCycle: getLifecycleStage(job),
+        currentStatus: getOperationalStatus(job),
+        uploadedAt: formatExcelDateTime(uploadedAt),
+        assignmentAt: formatExcelDateTime(job.assignmentAt || assignedAt),
+        assignedStageAt: formatExcelDateTime(assignedAt),
+        scheduledStartAt: formatExcelDateTime(job.scheduledStartAt),
+        scheduledStageAt: formatExcelDateTime(scheduledAt),
+        dueAt: formatExcelDateTime(job.dueAt || job.scheduledStartAt),
+        acceptedAt: formatExcelDateTime(job.acceptedAt),
+        dispatchedAt: formatExcelDateTime(job.dispatchedAt),
+        startedAt: formatExcelDateTime(job.startedAt || inProgressAt),
+        inProgressAt: formatExcelDateTime(inProgressAt),
+        completedAt: formatExcelDateTime(completedAt),
+        adminReviewedAt: formatExcelDateTime(job.adminReviewedAt),
+        closedAt: formatExcelDateTime(closedAt),
+        nonDispatchHours: nonDispatchHours ?? "",
+        fieldExecutionHours: fieldExecutionHours ?? "",
+        closeoutHours: closeoutHours ?? "",
+        jobValue: Number(job.jobValue || 0),
+        laborCost: Number(job.laborCost || 0),
+        plannedHours: Number(job.plannedHours || 0),
+        actualHours: Number(job.actualHours || 0),
+        completionPercent: Number(job.completion || 0),
+        blockerStage: job.blockerStage || "",
+        blockerReason: job.blockerReason || "",
+        rejectionReason: job.rejectionReason || "",
+        lastUpdateAt: formatExcelDateTime(latestUpdate?.createdAt || ""),
+        lastUpdateNote: summarizeUpdate(latestUpdate),
+        totalUpdates: updates.length
+      }];
     });
   }
 
@@ -592,16 +606,24 @@
       "teamName",
       "dispatcherName",
       "dispatcherPhone",
-      "dueAt",
-      "assignmentAt",
       "currentCycle",
       "currentStatus",
-      "lastProcessedCycle",
-      "cycleTimestamp",
-      "previousCycle",
-      "previousCycleTimestamp",
-      "durationHours",
+      "uploadedAt",
+      "assignmentAt",
+      "assignedStageAt",
       "scheduledStartAt",
+      "scheduledStageAt",
+      "dueAt",
+      "acceptedAt",
+      "dispatchedAt",
+      "startedAt",
+      "inProgressAt",
+      "completedAt",
+      "adminReviewedAt",
+      "closedAt",
+      "nonDispatchHours",
+      "fieldExecutionHours",
+      "closeoutHours",
       "jobValue",
       "laborCost",
       "plannedHours",
@@ -610,13 +632,6 @@
       "blockerStage",
       "blockerReason",
       "rejectionReason",
-      "adminApprovedAt",
-      "acceptedAt",
-      "dispatchedAt",
-      "startedAt",
-      "completedAt",
-      "adminReviewedAt",
-      "closedAt",
       "lastUpdateAt",
       "lastUpdateNote",
       "totalUpdates"
