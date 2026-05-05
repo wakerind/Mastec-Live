@@ -469,6 +469,31 @@
     </form>
   </dialog>
 
+  <dialog id="accountDetailDialog">
+    <form class="dialog-card dialog-card-lg" id="accountDetailForm">
+      <div class="dialog-header">
+        <h3>Account workspace</h3>
+        <button class="icon-btn" type="button" id="closeAccountDetailDialog" aria-label="Close">x</button>
+      </div>
+      <input type="hidden" name="accountType">
+      <input type="hidden" name="accountId">
+      <div class="detail-grid">
+        <div class="detail-section">
+          <p class="eyebrow">Account details</p>
+          <div class="detail-stack" id="accountDetailSummary"></div>
+        </div>
+        <div class="detail-section">
+          <p class="eyebrow">Edit account</p>
+          <div class="detail-stack" id="accountDetailFields"></div>
+        </div>
+      </div>
+      <menu class="dialog-actions">
+        <button class="secondary-btn" type="button" id="cancelAccountDetailDialog">Close</button>
+        <button class="primary-btn" type="submit">Save account</button>
+      </menu>
+    </form>
+  </dialog>
+
   <datalist id="jobTypeOptions">
     <option value="Fiber Splice"></option>
     <option value="Fiber Repair"></option>
