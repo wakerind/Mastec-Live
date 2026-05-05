@@ -2139,18 +2139,6 @@
   }
 
   function registerEvents() {
-    async function handleDemoLogin(email, password) {
-      elements.loginError.textContent = "";
-      elements.loginForm.elements.email.value = email;
-      elements.loginForm.elements.password.value = password;
-      try {
-        await login(email, password);
-        elements.loginForm.reset();
-      } catch (error) {
-        elements.loginError.textContent = error.message;
-      }
-    }
-
     elements.loginForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       elements.loginError.textContent = "";
@@ -2475,12 +2463,18 @@
     elements.jobForm.elements.plannedHours.addEventListener("input", refreshJobFormCrewOptions);
     elements.jobForm.elements.plannedHours.addEventListener("change", refreshJobFormCrewOptions);
 
-    elements.demoAdminCreds.addEventListener("click", async () => {
-      await handleDemoLogin("admin@fieldsight.local", "Admin123!");
+    elements.demoAdminCreds.addEventListener("click", () => {
+      elements.loginError.textContent = "";
+      elements.loginForm.elements.email.value = "admin@fieldsight.local";
+      elements.loginForm.elements.password.value = "Admin123!";
+      elements.loginForm.elements.password.focus();
     });
 
-    elements.demoFieldCreds.addEventListener("click", async () => {
-      await handleDemoLogin("crew1@fieldsight.local", "Field123!");
+    elements.demoFieldCreds.addEventListener("click", () => {
+      elements.loginError.textContent = "";
+      elements.loginForm.elements.email.value = "crew1@fieldsight.local";
+      elements.loginForm.elements.password.value = "Field123!";
+      elements.loginForm.elements.password.focus();
     });
 
     document.body.addEventListener("dragstart", (event) => {
