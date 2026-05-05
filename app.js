@@ -4,6 +4,7 @@
   const editableLifecycleStages = ["Uploaded", "Assigned", "Scheduled", "In Progress", "Completed", "Closed"];
   const maxAttachmentBatchBytes = 30 * 1024 * 1024;
   const dragMimeType = "application/x-fieldsight-job-id";
+  const displayTimeZone = "America/New_York";
 
   let authToken = localStorage.getItem(authStorageKey) || "";
   let currentScreen = "overview";
@@ -119,8 +120,10 @@
   function formatDateTime(value) {
     const date = new Date(value);
     return new Intl.DateTimeFormat("en-US", {
+      timeZone: displayTimeZone,
       month: "short",
       day: "numeric",
+      year: "numeric",
       hour: "numeric",
       minute: "2-digit"
     }).format(date);
@@ -134,8 +137,17 @@
     if (Number.isNaN(date.getTime())) {
       return "";
     }
-    const pad = (number) => String(number).padStart(2, "0");
-    return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: displayTimeZone,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).formatToParts(date);
+    const lookup = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+    return `${lookup.month}/${lookup.day}/${lookup.year} ${lookup.hour}:${lookup.minute}`;
   }
 
   function formatCurrency(value) {
