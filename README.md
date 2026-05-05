@@ -1,4 +1,4 @@
-# Mastec Live
+# MasTec Live
 
 This folder is the live-integration workspace for a MasTec-style operations platform intended to replace spreadsheet-heavy project and work tracking.
 

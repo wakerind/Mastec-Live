@@ -200,6 +200,28 @@ function readBody(req) {
   });
 }
 
+function toComparableValue(value) {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => toComparableValue(item));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, toComparableValue(entry)]));
+  }
+  return value ?? null;
+}
+
+function cloneRecord(value) {
+  return JSON.parse(JSON.stringify(toComparableValue(value)));
+}
+
+function diffRecordFields(previousState, nextState) {
+  const keys = new Set([...Object.keys(previousState || {}), ...Object.keys(nextState || {})]);
+  return [...keys].filter((key) => JSON.stringify(previousState?.[key] ?? null) !== JSON.stringify(nextState?.[key] ?? null)).sort();
+}
+
 function resolveStaticFile(urlPath) {
   const requested = urlPath === "/" ? "/index.html" : urlPath;
   const filePath = path.normalize(path.join(rootDir, requested));
@@ -244,6 +266,29 @@ async function requireAdmin(req, res) {
     return null;
   }
   return user;
+}
+
+function normalizeSourceAction(value) {
+  return String(value || "updateJob").trim() || "updateJob";
+}
+
+function validateExplicitAction(existing, sourceAction) {
+  if (sourceAction === "acceptJob" && existing.acceptedAt) {
+    return "This job was already accepted.";
+  }
+  if (sourceAction === "startJob" && existing.startedAt) {
+    return "This job was already started.";
+  }
+  if (sourceAction === "completeJob" && existing.completedAt) {
+    return "This job was already completed.";
+  }
+  if (sourceAction === "adminReviewJob" && existing.adminReviewedAt) {
+    return "Final admin review was already completed.";
+  }
+  if (sourceAction === "closeJob" && existing.lifecycleStage === "Closed") {
+    return "This job is already closed.";
+  }
+  return "";
 }
 
 function computeKpis(jobs, crews) {
@@ -602,6 +647,19 @@ const server = http.createServer(async (req, res) => {
         blockerReason: String(body.blockerReason || ""),
         createdByUserId: user.id
       });
+      const createdJob = await db.findJobById(jobId);
+      await db.recordJobAuditEvent({
+        jobId,
+        action: "createJob",
+        actorRole: user.role,
+        actorName: user.name,
+        source: "job-create-dialog",
+        deviceTime: body.deviceTime ? String(body.deviceTime) : null,
+        serverTime: nowIso(),
+        previousState: {},
+        nextState: cloneRecord(createdJob),
+        changedFields: Object.keys(cloneRecord(createdJob))
+      });
       sendJson(res, 201, { jobId });
       return;
     }
@@ -618,12 +676,27 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 404, { error: "Job not found" });
         return;
       }
+      const expectedJobVersion = Number(body.expectedJobVersion || 0);
+      if (!expectedJobVersion || expectedJobVersion !== Number(existing.jobVersion || 0)) {
+        sendJson(res, 409, {
+          error: "This job changed in another session. Refresh the app and try again.",
+          latestJobVersion: Number(existing.jobVersion || 0)
+        });
+        return;
+      }
       if (user.role === "field" && existing.assignedTo !== user.name) {
         sendJson(res, 403, { error: "Field users can only update their assigned jobs" });
         return;
       }
+      const sourceAction = normalizeSourceAction(body.sourceAction);
+      const actionConflict = validateExplicitAction(existing, sourceAction);
+      if (actionConflict) {
+        sendJson(res, 409, { error: actionConflict, latestJobVersion: Number(existing.jobVersion || 0) });
+        return;
+      }
 
       const next = { ...existing };
+      const previousState = cloneRecord(existing);
       const previousLifecycleStage = existing.lifecycleStage || "Uploaded";
       if (user.role === "admin") {
         const previousAssignedTo = next.assignedTo;
@@ -814,18 +887,41 @@ const server = http.createServer(async (req, res) => {
 
       next.intakeStatus = currentLifecycle(next);
       next.fieldStatus = getOperationalStatus(next);
+      const serverTimestamp = nowIso();
+      next.updatedAt = serverTimestamp;
+      next.jobVersion = Number(existing.jobVersion || 0) + 1;
 
-      await db.updateJob(jobId, next);
+      const updated = await db.updateJob(jobId, next, expectedJobVersion);
+      if (!updated) {
+        sendJson(res, 409, {
+          error: "This job changed in another session. Refresh the app and try again.",
+          latestJobVersion: Number(existing.jobVersion || 0)
+        });
+        return;
+      }
       if (next.lifecycleStage !== previousLifecycleStage) {
         await db.recordStageTransition({
           jobId,
           toStage: next.lifecycleStage,
           actorRole: user.role,
           actorName: user.name,
-          changedAt: nowIso()
+          changedAt: serverTimestamp
         });
       }
-      sendJson(res, 200, { ok: true });
+      const nextState = cloneRecord(next);
+      await db.recordJobAuditEvent({
+        jobId,
+        action: sourceAction,
+        actorRole: user.role,
+        actorName: user.name,
+        source: String(body.source || body.sourceAction || "job-update"),
+        deviceTime: body.deviceTime ? String(body.deviceTime) : null,
+        serverTime: serverTimestamp,
+        previousState,
+        nextState,
+        changedFields: diffRecordFields(previousState, nextState)
+      });
+      sendJson(res, 200, { ok: true, jobVersion: next.jobVersion, updatedAt: next.updatedAt });
       return;
     }
 
@@ -861,11 +957,46 @@ const server = http.createServer(async (req, res) => {
         note: String(body.note || ""),
         attachments
       });
+      await db.recordJobAuditEvent({
+        jobId,
+        action: "addJobUpdate",
+        actorRole: user.role,
+        actorName: user.name,
+        source: "job-update-form",
+        deviceTime: body.deviceTime ? String(body.deviceTime) : null,
+        serverTime: nowIso(),
+        previousState: {},
+        nextState: {
+          updateType: String(body.updateType || ""),
+          workDone: String(body.workDone || ""),
+          codesUsed: normalizeCodesUsed(body.codesUsed),
+          note: String(body.note || ""),
+          attachments
+        },
+        changedFields: ["updateType", "workDone", "codesUsed", "note", "attachments"]
+      });
       sendJson(res, 201, { ok: true });
       return;
     }
 
     if (url.pathname.startsWith("/uploads/")) {
+      const user = await requireUser(req, res);
+      if (!user) {
+        return;
+      }
+      const match = url.pathname.match(/^\/uploads\/job-(\d+)\//);
+      const jobId = match ? Number(match[1]) : 0;
+      const job = jobId ? await db.findJobById(jobId) : null;
+      if (!job) {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Not found");
+        return;
+      }
+      if (user.role === "field" && job.assignedTo !== user.name) {
+        res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Forbidden");
+        return;
+      }
       const uploadFilePath = path.normalize(path.join(uploadsDir, url.pathname.replace("/uploads/", "")));
       if (!uploadFilePath.startsWith(uploadsDir) || !fs.existsSync(uploadFilePath) || fs.statSync(uploadFilePath).isDirectory()) {
         res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });

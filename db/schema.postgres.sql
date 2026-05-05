@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   admin_reviewed_at TIMESTAMPTZ,
   rejected_at TIMESTAMPTZ,
   rejection_reason TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  job_version INTEGER NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_by_user_id BIGINT REFERENCES users(id)
 );
@@ -114,6 +116,8 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS admin_reviewed_at TIMESTAMPTZ;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS rejection_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_version INTEGER NOT NULL DEFAULT 1;
 
 CREATE TABLE IF NOT EXISTS job_updates (
   id BIGSERIAL PRIMARY KEY,
@@ -156,10 +160,26 @@ CREATE TABLE IF NOT EXISTS job_stage_events (
   actor_name TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS job_audit_events (
+  id BIGSERIAL PRIMARY KEY,
+  job_id BIGINT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  action TEXT NOT NULL,
+  actor_role TEXT NOT NULL DEFAULT '',
+  actor_name TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '',
+  device_time TIMESTAMPTZ,
+  server_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  previous_state JSONB NOT NULL DEFAULT '{}'::jsonb,
+  next_state JSONB NOT NULL DEFAULT '{}'::jsonb,
+  changed_fields JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_scheduled_start_at ON jobs (scheduled_start_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_assigned_to ON jobs (assigned_to);
 CREATE INDEX IF NOT EXISTS idx_jobs_intake_status ON jobs (intake_status);
 CREATE INDEX IF NOT EXISTS idx_jobs_field_status ON jobs (field_status);
+CREATE INDEX IF NOT EXISTS idx_jobs_updated_at ON jobs (updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_job_updates_job_id ON job_updates (job_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_job_update_attachments_update_id ON job_update_attachments (job_update_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_job_stage_events_job_id ON job_stage_events (job_id, entered_at DESC);
+CREATE INDEX IF NOT EXISTS idx_job_audit_events_job_id ON job_audit_events (job_id, server_time DESC);

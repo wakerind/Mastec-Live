@@ -69,6 +69,11 @@ async function hydrateLegacyJobData(pool) {
         WHEN lifecycle_stage IN ('Completed', 'Admin Reviewed', 'Closed') THEN created_at
         ELSE NULL
       END,
+      updated_at = COALESCE(updated_at, created_at, NOW()),
+      job_version = CASE
+        WHEN COALESCE(job_version, 0) <= 0 THEN 1
+        ELSE job_version
+      END,
       admin_reviewed_at = CASE
         WHEN admin_reviewed_at IS NOT NULL THEN admin_reviewed_at
         WHEN lifecycle_stage IN ('Admin Reviewed', 'Closed') THEN created_at
@@ -113,6 +118,8 @@ async function ensureJobColumns(pool) {
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS admin_reviewed_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS rejection_reason TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()");
+  await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_version INTEGER NOT NULL DEFAULT 1");
   await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS contact_name TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS contact_email TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS contact_phone TEXT NOT NULL DEFAULT ''");
@@ -121,6 +128,22 @@ async function ensureJobColumns(pool) {
   await pool.query("ALTER TABLE job_updates ADD COLUMN IF NOT EXISTS update_type TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE job_updates ADD COLUMN IF NOT EXISTS work_done TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE job_updates ADD COLUMN IF NOT EXISTS codes_used TEXT NOT NULL DEFAULT '[]'");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS job_audit_events (
+      id BIGSERIAL PRIMARY KEY,
+      job_id BIGINT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+      action TEXT NOT NULL,
+      actor_role TEXT NOT NULL DEFAULT '',
+      actor_name TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT '',
+      device_time TIMESTAMPTZ,
+      server_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      previous_state JSONB NOT NULL DEFAULT '{}'::jsonb,
+      next_state JSONB NOT NULL DEFAULT '{}'::jsonb,
+      changed_fields JSONB NOT NULL DEFAULT '[]'::jsonb
+    )
+  `);
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_job_audit_events_job_id ON job_audit_events (job_id, server_time DESC)");
 }
 
 export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso, rootDir }) {
@@ -365,12 +388,14 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
           completed_at AS "completedAt",
           admin_reviewed_at AS "adminReviewedAt",
           rejected_at AS "rejectedAt",
-          COALESCE(rejection_reason, '') AS "rejectionReason",
-          issue,
-          quality_score AS "qualityScore",
-          duration_variance AS "durationVariance",
-          created_at AS "createdAt"
-        FROM jobs
+           COALESCE(rejection_reason, '') AS "rejectionReason",
+           issue,
+           quality_score AS "qualityScore",
+           duration_variance AS "durationVariance",
+           updated_at AS "updatedAt",
+           job_version::int AS "jobVersion",
+           created_at AS "createdAt"
+         FROM jobs
         ORDER BY scheduled_start_at ASC, id DESC
       `)).rows;
     },
@@ -408,10 +433,13 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
           completed_at AS "completedAt",
           admin_reviewed_at AS "adminReviewedAt",
           rejected_at AS "rejectedAt",
-          COALESCE(rejection_reason, '') AS "rejectionReason",
-          issue,
-          quality_score AS "qualityScore",
-          duration_variance AS "durationVariance"
+           COALESCE(rejection_reason, '') AS "rejectionReason",
+           issue,
+           quality_score AS "qualityScore",
+           duration_variance AS "durationVariance",
+           updated_at AS "updatedAt",
+           job_version::int AS "jobVersion",
+           created_at AS "createdAt"
         FROM jobs WHERE id = $1
       `, [jobId])).rows[0];
     },
@@ -424,8 +452,8 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         INSERT INTO jobs (
           title, market, requested_by, job_address, job_type, job_description, priority, intake_status, due_at, assignment_at, scheduled_start_at,
           assigned_to, dispatcher_name, dispatcher_phone, field_status, completion, budget, job_value, labor_cost, planned_hours,
-          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, dispatched_at, started_at, completed_at, admin_reviewed_at, issue, quality_score, duration_variance, created_at, created_by_user_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, $11::timestamptz, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
+          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, dispatched_at, started_at, completed_at, admin_reviewed_at, issue, quality_score, duration_variance, updated_at, job_version, created_at, created_by_user_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, $11::timestamptz, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37)
         RETURNING id
       `, [
         title,
@@ -464,6 +492,8 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         90,
         0,
         nowIso(),
+        1,
+        nowIso(),
         createdByUserId
       ]);
       const jobId = Number(result.rows[0].id);
@@ -473,15 +503,15 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
       `, [jobId, lifecycleStage, nowIso(), "admin", "Job created"]);
       return jobId;
     },
-    async updateJob(jobId, next) {
-      await pool.query(`
+    async updateJob(jobId, next, expectedJobVersion) {
+      const result = await pool.query(`
         UPDATE jobs
         SET intake_status = $1, assigned_to = $2, scheduled_start_at = $3::timestamptz, priority = $4,
             requested_by = $5, job_address = $6, job_description = $7, dispatcher_name = $8, dispatcher_phone = $9, due_at = $10::timestamptz, assignment_at = $11::timestamptz,
             field_status = $12, completion = $13, issue = $14, job_value = $15, labor_cost = $16,
             planned_hours = $17, actual_hours = $18, blocker_reason = $19, blocker_stage = $20, lifecycle_stage = $21, admin_approved = $22, accepted_at = $23, dispatched_at = $24, started_at = $25, completed_at = $26, admin_reviewed_at = $27, rejected_at = $28, rejection_reason = $29, duration_variance = $30,
-            budget = $31
-        WHERE id = $32
+            budget = $31, updated_at = $32::timestamptz, job_version = $33
+        WHERE id = $34 AND job_version = $35
       `, [
         next.intakeStatus,
         next.assignedTo || null,
@@ -514,8 +544,12 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         next.rejectionReason || "",
         Math.round(Number(next.durationVariance || 0)),
         Number(next.jobValue || 0) / 1000000,
-        jobId
+        next.updatedAt || nowIso(),
+        Number(next.jobVersion || 1),
+        jobId,
+        Number(expectedJobVersion || 0)
       ]);
+      return result.rowCount > 0;
     },
     async listStageEvents(jobIds) {
       if (!jobIds.length) {
@@ -614,6 +648,45 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         `, [updateId, attachment.attachmentName || "", attachment.attachmentPath || "", attachment.attachmentMime || "", nowIso()]);
       }
       return updateId;
+    },
+    async recordJobAuditEvent({ jobId, action, actorRole, actorName, source, deviceTime, serverTime, previousState, nextState, changedFields }) {
+      await pool.query(`
+        INSERT INTO job_audit_events (job_id, action, actor_role, actor_name, source, device_time, server_time, previous_state, next_state, changed_fields)
+        VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8::jsonb, $9::jsonb, $10::jsonb)
+      `, [
+        jobId,
+        action || "updateJob",
+        actorRole || "",
+        actorName || "",
+        source || "",
+        deviceTime || null,
+        serverTime || nowIso(),
+        JSON.stringify(previousState || {}),
+        JSON.stringify(nextState || {}),
+        JSON.stringify(Array.isArray(changedFields) ? changedFields : [])
+      ]);
+    },
+    async listJobAuditEvents(jobIds) {
+      if (!jobIds.length) {
+        return [];
+      }
+      return (await pool.query(`
+        SELECT
+          id::int AS id,
+          job_id::int AS "jobId",
+          action,
+          actor_role AS "actorRole",
+          actor_name AS "actorName",
+          source,
+          device_time AS "deviceTime",
+          server_time AS "serverTime",
+          previous_state AS "previousState",
+          next_state AS "nextState",
+          changed_fields AS "changedFields"
+        FROM job_audit_events
+        WHERE job_id = ANY($1::int[])
+        ORDER BY server_time DESC, id DESC
+      `, [jobIds])).rows;
     }
   };
 }

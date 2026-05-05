@@ -1,6 +1,6 @@
 {
-  "name": "Mastec Live",
-  "short_name": "MastecLive",
+  "name": "MasTec Live",
+  "short_name": "MasTecLive",
   "description": "Live operations portal for intake, assignment, field execution, and KPI tracking.",
   "start_url": "./index.html",
   "display": "standalone",

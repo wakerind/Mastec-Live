@@ -748,10 +748,10 @@
             ${(update.attachments || []).length ? `
               <div class="attachment-list">
                 ${(update.attachments || []).map((attachment) => `
-                  <a class="update-link" href="${attachment.attachmentPath}" target="_blank" rel="noreferrer">Open ${attachment.attachmentName || "attachment"}</a>
+                  <button class="update-link attachment-link" type="button" data-attachment-path="${escapeHtml(attachment.attachmentPath || "")}" data-attachment-name="${escapeHtml(attachment.attachmentName || "attachment")}">Open ${attachment.attachmentName || "attachment"}</button>
                 `).join("")}
               </div>
-            ` : (update.attachmentPath ? `<a class="update-link" href="${update.attachmentPath}" target="_blank" rel="noreferrer">Open ${update.attachmentName || "attachment"}</a>` : "")}
+            ` : (update.attachmentPath ? `<button class="update-link attachment-link" type="button" data-attachment-path="${escapeHtml(update.attachmentPath || "")}" data-attachment-name="${escapeHtml(update.attachmentName || "attachment")}">Open ${update.attachmentName || "attachment"}</button>` : "")}
           </article>
         `).join("")}
       </div>
@@ -827,6 +827,30 @@
     }
 
     return payload;
+  }
+
+  async function openSecureAttachment(path, name) {
+    const headers = {};
+    if (authToken) {
+      headers.Authorization = `Bearer ${authToken}`;
+    }
+    const response = await fetch(path, { headers });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || `Attachment request failed with ${response.status}`);
+    }
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const tab = window.open(objectUrl, "_blank", "noopener,noreferrer");
+    if (!tab) {
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = name || "attachment";
+      document.body.append(link);
+      link.click();
+      link.remove();
+    }
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
   }
 
   function getFilters() {
@@ -1680,9 +1704,17 @@
   }
 
   async function updateJob(jobId, payload) {
+    const job = appState.jobs.find((item) => Number(item.id) === Number(jobId));
+    if (!job) {
+      throw new Error("Job not found in the current session.");
+    }
     await api(`/api/jobs/${jobId}`, {
       method: "PATCH",
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        ...payload,
+        expectedJobVersion: Number(job.jobVersion || 0),
+        deviceTime: new Date().toISOString()
+      })
     });
     await refreshApp();
   }
@@ -1998,7 +2030,9 @@
       await updateJob(jobId, {
         assignedTo: availableCrew.name,
         lifecycleStage: "Assigned",
-        issue: `Assigned to ${availableCrew.name}. Waiting on acknowledgement.`
+        issue: `Assigned to ${availableCrew.name}. Waiting on acknowledgement.`,
+        sourceAction: "assignJob",
+        source: "quick-assign"
       });
       return;
     }
@@ -2028,7 +2062,9 @@
         completion: nextCompletion,
         actualHours: nextHours,
         blockerReason: nextStatus === "Completed" || nextStatus === "Closed" ? "" : job.blockerReason,
-        issue: `Stage moved to ${nextStatus}.`
+        issue: `Stage moved to ${nextStatus}.`,
+        sourceAction: "advanceStage",
+        source: "workflow-controls"
       });
       return;
     }
@@ -2036,7 +2072,9 @@
     if (action === "admin-signoff") {
       await updateJob(jobId, {
         adminApproved: true,
-        issue: "Admin signoff completed."
+        issue: "Admin signoff completed.",
+        sourceAction: "adminSignoff",
+        source: "admin-board"
       });
       window.alert("Job was approved and is ready for assignment.");
       return;
@@ -2045,7 +2083,9 @@
     if (action === "accept-job") {
       await updateJob(jobId, {
         accepted: true,
-        issue: "Assigned team accepted the job."
+        issue: "Assigned team accepted the job.",
+        sourceAction: "acceptJob",
+        source: "field-actions"
       });
       window.alert("Job was accepted.");
       return;
@@ -2055,7 +2095,9 @@
       await updateJob(jobId, {
         dispatched: true,
         accepted: true,
-        issue: "Crew dispatched to the scheduled job."
+        issue: "Crew dispatched to the scheduled job.",
+        sourceAction: "dispatchJob",
+        source: "field-actions"
       });
       window.alert("Dispatch time was recorded.");
       return;
@@ -2066,7 +2108,9 @@
         started: true,
         accepted: true,
         lifecycleStage: "In Progress",
-        issue: "Crew officially started work and moved the job into progress."
+        issue: "Crew officially started work and moved the job into progress.",
+        sourceAction: "startJob",
+        source: "field-actions"
       });
       window.alert("Job was started and is now in progress.");
       return;
@@ -2082,7 +2126,9 @@
         lifecycleStage: "Completed",
         completion: 100,
         accepted: true,
-        issue: "Field crew marked the job complete."
+        issue: "Field crew marked the job complete.",
+        sourceAction: "completeJob",
+        source: "field-actions"
       });
       if (elements.jobDetailDialog.open) {
         elements.jobDetailDialog.close();
@@ -2095,7 +2141,9 @@
       await updateJob(jobId, {
         adminReviewed: true,
         lifecycleStage: "Completed",
-        issue: "Final admin review completed. Job closed."
+        issue: "Final admin review completed. Job closed.",
+        sourceAction: "adminReviewJob",
+        source: "admin-review"
       });
       window.alert("Final admin review completed. Job was closed.");
       return;
@@ -2104,7 +2152,9 @@
     if (action === "close-job") {
       await updateJob(jobId, {
         lifecycleStage: "Closed",
-        issue: "Job closed after admin review."
+        issue: "Job closed after admin review.",
+        sourceAction: "closeJob",
+        source: "admin-review"
       });
       return;
     }
@@ -2404,7 +2454,9 @@
       await updateJob(jobId, {
         assignedTo,
         lifecycleStage: assignedTo ? "Assigned" : "Uploaded",
-        issue: `Assigned to ${assignedTo}. Waiting on acknowledgement.`
+        issue: `Assigned to ${assignedTo}. Waiting on acknowledgement.`,
+        sourceAction: "assignJob",
+        source: "assign-dialog"
       });
       elements.assignDialog.close();
     });
@@ -2421,7 +2473,8 @@
           workDone: form.get("workDone"),
           codesUsed: Array.from(elements.updateForm.elements.codesUsed.selectedOptions).map((option) => option.value),
           note: form.get("note"),
-          attachments
+          attachments,
+          deviceTime: new Date().toISOString()
         })
       });
       elements.updateDialog.close();
@@ -2442,7 +2495,9 @@
       await updateJob(jobId, {
         rejected: true,
         rejectionReason,
-        issue: `Rejected by field team: ${rejectionReason}`
+        issue: `Rejected by field team: ${rejectionReason}`,
+        sourceAction: "rejectJob",
+        source: "reject-dialog"
       });
       elements.rejectDialog.close();
       window.alert("Job was rejected and returned for immediate admin review.");
@@ -2464,7 +2519,9 @@
         priority: form.get("priority"),
         adminApproved: form.get("adminApproved") === "on",
         adminReviewed: form.get("adminReviewed") === "on",
-        issue: assignedTo ? `Updated in job workspace. Assigned to ${assignedTo}.` : "Updated in job workspace."
+        issue: assignedTo ? `Updated in job workspace. Assigned to ${assignedTo}.` : "Updated in job workspace.",
+        sourceAction: "editJobDetails",
+        source: "job-workspace"
       });
       const adminReviewed = form.get("adminReviewed") === "on";
       elements.jobDetailDialog.close();
@@ -2521,12 +2578,23 @@
       if (!job) {
         return;
       }
-      updateJob(jobId, buildStageUpdatePayload(job, stage, "the admin board")).catch((error) => {
+      updateJob(jobId, {
+        ...buildStageUpdatePayload(job, stage, "the admin board"),
+        sourceAction: "dragStageChange",
+        source: "admin-board"
+      }).catch((error) => {
         window.alert(error.message);
       });
     });
 
     document.body.addEventListener("click", (event) => {
+      const attachmentButton = event.target.closest("[data-attachment-path]");
+      if (attachmentButton) {
+        openSecureAttachment(attachmentButton.dataset.attachmentPath, attachmentButton.dataset.attachmentName).catch((error) => {
+          window.alert(error.message);
+        });
+        return;
+      }
       const navButton = event.target.closest("[data-nav-screen]");
       if (navButton) {
         setScreen(navButton.dataset.navScreen);

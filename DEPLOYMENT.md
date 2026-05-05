@@ -46,7 +46,7 @@ Before selling this broadly, plan to add:
 
 ## Render deployment
 
-This repo now includes `render.yaml` for a Render Blueprint deployment for `Mastec Live`.
+This repo now includes `render.yaml` for a Render Blueprint deployment for `MasTec Live`.
 
 ### What the current Render config does
 

@@ -134,6 +134,14 @@ function listCrewsWithUtilization(db) {
   });
 }
 
+function safeParseJson(value, fallback) {
+  try {
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIso }) {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -223,6 +231,8 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       admin_reviewed_at TEXT,
       rejected_at TEXT,
       rejection_reason TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT '',
+      job_version INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       created_by_user_id INTEGER REFERENCES users(id)
     );
@@ -260,6 +270,20 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       actor_role TEXT NOT NULL DEFAULT '',
       actor_name TEXT NOT NULL DEFAULT ''
     );
+
+    CREATE TABLE IF NOT EXISTS job_audit_events (
+      id INTEGER PRIMARY KEY,
+      job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+      action TEXT NOT NULL,
+      actor_role TEXT NOT NULL DEFAULT '',
+      actor_name TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT '',
+      device_time TEXT,
+      server_time TEXT NOT NULL,
+      previous_state TEXT NOT NULL DEFAULT '{}',
+      next_state TEXT NOT NULL DEFAULT '{}',
+      changed_fields TEXT NOT NULL DEFAULT '[]'
+    );
   `);
 
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN job_value REAL NOT NULL DEFAULT 0");
@@ -283,6 +307,8 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN admin_reviewed_at TEXT");
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN rejected_at TEXT");
   addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN rejection_reason TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "ALTER TABLE jobs ADD COLUMN job_version INTEGER NOT NULL DEFAULT 1");
   addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN contact_name TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN contact_email TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN contact_phone TEXT NOT NULL DEFAULT ''");
@@ -298,6 +324,18 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
   addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN attachment_name TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN attachment_path TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN attachment_mime TEXT NOT NULL DEFAULT ''");
+  db.exec(`
+    UPDATE jobs
+    SET
+      updated_at = CASE
+        WHEN COALESCE(updated_at, '') = '' THEN created_at
+        ELSE updated_at
+      END,
+      job_version = CASE
+        WHEN COALESCE(job_version, 0) <= 0 THEN 1
+        ELSE job_version
+      END
+  `);
   hydrateLegacyJobData(db);
 
   const insertUser = db.prepare(`
@@ -508,14 +546,16 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
           dispatched_at AS dispatchedAt,
           started_at AS startedAt,
           completed_at AS completedAt,
-          admin_reviewed_at AS adminReviewedAt,
-          rejected_at AS rejectedAt,
-          COALESCE(rejection_reason, '') AS rejectionReason,
-          issue,
-          quality_score AS qualityScore,
-          duration_variance AS durationVariance,
-          created_at AS createdAt
-        FROM jobs
+           admin_reviewed_at AS adminReviewedAt,
+           rejected_at AS rejectedAt,
+           COALESCE(rejection_reason, '') AS rejectionReason,
+           issue,
+           quality_score AS qualityScore,
+           duration_variance AS durationVariance,
+           updated_at AS updatedAt,
+           job_version AS jobVersion,
+           created_at AS createdAt
+         FROM jobs
         ORDER BY datetime(scheduled_start_at) ASC, id DESC
       `).all();
     },
@@ -551,13 +591,16 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
           dispatched_at AS dispatchedAt,
           started_at AS startedAt,
           completed_at AS completedAt,
-          admin_reviewed_at AS adminReviewedAt,
-          rejected_at AS rejectedAt,
-          COALESCE(rejection_reason, '') AS rejectionReason,
-          issue,
-          quality_score AS qualityScore,
-          duration_variance AS durationVariance
-        FROM jobs WHERE id = ?
+           admin_reviewed_at AS adminReviewedAt,
+           rejected_at AS rejectedAt,
+           COALESCE(rejection_reason, '') AS rejectionReason,
+           issue,
+           quality_score AS qualityScore,
+           duration_variance AS durationVariance,
+           updated_at AS updatedAt,
+           job_version AS jobVersion,
+           created_at AS createdAt
+         FROM jobs WHERE id = ?
       `).get(jobId);
     },
     async createJob({ title, market, requestedBy, jobAddress, jobType, jobDescription, priority, dueAt, assignmentAt, scheduledStartAt, assignedTo, dispatcherName, dispatcherPhone, jobValue, laborCost, plannedHours, blockerReason, createdByUserId }) {
@@ -569,8 +612,8 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         INSERT INTO jobs (
           title, market, requested_by, job_address, job_type, job_description, priority, intake_status, due_at, assignment_at, scheduled_start_at,
           assigned_to, dispatcher_name, dispatcher_phone, field_status, completion, budget, job_value, labor_cost, planned_hours,
-          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, dispatched_at, started_at, completed_at, admin_reviewed_at, issue, quality_score, duration_variance, created_at, created_by_user_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, dispatched_at, started_at, completed_at, admin_reviewed_at, issue, quality_score, duration_variance, updated_at, job_version, created_at, created_by_user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         title,
         market,
@@ -608,6 +651,8 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         90,
         0,
         nowIso(),
+        1,
+        nowIso(),
         createdByUserId
       );
       const jobId = Number(result.lastInsertRowid);
@@ -617,15 +662,15 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       `).run(jobId, lifecycleStage, nowIso(), "admin", "Job created");
       return jobId;
     },
-    async updateJob(jobId, next) {
-      db.prepare(`
+    async updateJob(jobId, next, expectedJobVersion) {
+      const result = db.prepare(`
         UPDATE jobs
         SET intake_status = ?, assigned_to = ?, scheduled_start_at = ?, priority = ?,
             requested_by = ?, job_address = ?, job_description = ?, dispatcher_name = ?, dispatcher_phone = ?, due_at = ?, assignment_at = ?,
             field_status = ?, completion = ?, issue = ?, job_value = ?, labor_cost = ?,
             planned_hours = ?, actual_hours = ?, blocker_reason = ?, blocker_stage = ?, lifecycle_stage = ?, admin_approved = ?, accepted_at = ?, dispatched_at = ?, started_at = ?, completed_at = ?, admin_reviewed_at = ?, rejected_at = ?, rejection_reason = ?, duration_variance = ?,
-            budget = ?
-        WHERE id = ?
+            budget = ?, updated_at = ?, job_version = ?
+        WHERE id = ? AND job_version = ?
       `).run(
         next.intakeStatus,
         next.assignedTo || null,
@@ -658,8 +703,12 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         next.rejectionReason || "",
         Math.round(Number(next.durationVariance || 0)),
         Number(next.jobValue || 0) / 1000000,
-        jobId
+        next.updatedAt || nowIso(),
+        Number(next.jobVersion || 1),
+        jobId,
+        Number(expectedJobVersion || 0)
       );
+      return result.changes > 0;
     },
     async listStageEvents(jobIds) {
       if (!jobIds.length) {
@@ -767,6 +816,51 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         );
       });
       return Number(result.lastInsertRowid);
+    },
+    async recordJobAuditEvent({ jobId, action, actorRole, actorName, source, deviceTime, serverTime, previousState, nextState, changedFields }) {
+      db.prepare(`
+        INSERT INTO job_audit_events (job_id, action, actor_role, actor_name, source, device_time, server_time, previous_state, next_state, changed_fields)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        jobId,
+        action || "updateJob",
+        actorRole || "",
+        actorName || "",
+        source || "",
+        deviceTime || null,
+        serverTime || nowIso(),
+        JSON.stringify(previousState || {}),
+        JSON.stringify(nextState || {}),
+        JSON.stringify(Array.isArray(changedFields) ? changedFields : [])
+      );
+    },
+    async listJobAuditEvents(jobIds) {
+      if (!jobIds.length) {
+        return [];
+      }
+      const placeholders = jobIds.map(() => "?").join(", ");
+      return db.prepare(`
+        SELECT
+          id,
+          job_id AS jobId,
+          action,
+          actor_role AS actorRole,
+          actor_name AS actorName,
+          source,
+          device_time AS deviceTime,
+          server_time AS serverTime,
+          previous_state AS previousState,
+          next_state AS nextState,
+          changed_fields AS changedFields
+        FROM job_audit_events
+        WHERE job_id IN (${placeholders})
+        ORDER BY datetime(server_time) DESC, id DESC
+      `).all(...jobIds).map((event) => ({
+        ...event,
+        previousState: safeParseJson(event.previousState, {}),
+        nextState: safeParseJson(event.nextState, {}),
+        changedFields: safeParseJson(event.changedFields, [])
+      }));
     }
   };
 }
