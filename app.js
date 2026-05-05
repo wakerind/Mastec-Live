@@ -14,6 +14,7 @@
     updatesByJob: {},
     stageEventsByJob: {},
     crews: [],
+    adminUsers: [],
     kpis: { teams: [], contractors: [], cycleRows: [] }
   };
 
@@ -41,6 +42,12 @@
     crewAccountsList: document.getElementById("crewAccountsList"),
     invitesList: document.getElementById("invitesList"),
     inviteForm: document.getElementById("inviteForm"),
+    accountDetailDialog: document.getElementById("accountDetailDialog"),
+    accountDetailForm: document.getElementById("accountDetailForm"),
+    closeAccountDetailDialog: document.getElementById("closeAccountDetailDialog"),
+    cancelAccountDetailDialog: document.getElementById("cancelAccountDetailDialog"),
+    accountDetailSummary: document.getElementById("accountDetailSummary"),
+    accountDetailFields: document.getElementById("accountDetailFields"),
     intakeStatusFilter: document.getElementById("intakeStatusFilter"),
     intakeSearch: document.getElementById("intakeSearch"),
     assignmentWindowFilter: document.getElementById("assignmentWindowFilter"),
@@ -1571,6 +1578,7 @@
       api("/api/admin/users"),
       api("/api/admin/invites")
     ]);
+    appState.adminUsers = usersPayload.users;
 
     renderAccountsData(usersPayload.users);
 
@@ -1747,7 +1755,7 @@
 
   function renderAccountsData(users) {
     elements.usersList.innerHTML = users.length ? users.map((user) => `
-      <form class="info-card account-card" data-account-form="user" data-user-id="${user.id}">
+      <article class="info-card account-row">
         <div class="account-card-header">
           <div>
             <strong>${escapeHtml(user.name)}</strong><br>
@@ -1755,17 +1763,14 @@
           </div>
           <span class="pill">${escapeHtml(user.role)} | ${escapeHtml(user.status)}</span>
         </div>
-        <label>Name<input name="name" value="${escapeHtml(user.name)}"></label>
-        <label>Phone<input name="phone" value="${escapeHtml(user.phone || "")}" placeholder="Optional phone number"></label>
-        <label>Office address<input name="officeAddress" value="${escapeHtml(user.officeAddress || "")}" placeholder="Optional office address"></label>
-        <label>Zone of work<input name="zoneOfWork" value="${escapeHtml(user.zoneOfWork || "")}" placeholder="Optional zone or market"></label>
-        <label>Notes<textarea name="note" rows="3" placeholder="Optional notes">${escapeHtml(user.note || "")}</textarea></label>
-        <button class="action-btn save-btn" type="submit">Save user info</button>
-      </form>
+        <div class="job-actions compact-actions">
+          <button class="action-btn" type="button" data-action="open-account" data-account-type="user" data-account-id="${user.id}">Open account</button>
+        </div>
+      </article>
     `).join("") : emptyState("No users found.");
 
     elements.crewAccountsList.innerHTML = appState.crews.length ? appState.crews.map((crew) => `
-      <form class="info-card account-card" data-account-form="crew" data-crew-id="${crew.id}">
+      <article class="info-card account-row">
         <div class="account-card-header">
           <div>
             <strong>${escapeHtml(crew.name)}</strong><br>
@@ -1773,15 +1778,72 @@
           </div>
           <span class="pill">${escapeHtml(crew.available)} available</span>
         </div>
-        <label>Primary contact<input name="contactName" value="${escapeHtml(crew.contactName || "")}" placeholder="Optional contact name"></label>
-        <label>Contact email<input name="contactEmail" value="${escapeHtml(crew.contactEmail || "")}" placeholder="Optional email"></label>
-        <label>Contact phone<input name="contactPhone" value="${escapeHtml(crew.contactPhone || "")}" placeholder="Optional phone number"></label>
-        <label>Office address<input name="officeAddress" value="${escapeHtml(crew.officeAddress || "")}" placeholder="Optional office or yard address"></label>
-        <label>Zone of work<input name="coverageArea" value="${escapeHtml(crew.coverageArea || "")}" placeholder="Optional work zone or coverage area"></label>
-        <label>Notes<textarea name="note" rows="3" placeholder="Optional crew notes">${escapeHtml(crew.note || "")}</textarea></label>
-        <button class="action-btn save-btn" type="submit">Save crew info</button>
-      </form>
+        <div class="job-actions compact-actions">
+          <button class="action-btn" type="button" data-action="open-account" data-account-type="crew" data-account-id="${crew.id}">Open account</button>
+        </div>
+      </article>
     `).join("") : emptyState("No crews found.");
+  }
+
+  function openAccountDetailDialog(accountType, accountId) {
+    const isCrew = accountType === "crew";
+    const record = isCrew
+      ? appState.crews.find((crew) => String(crew.id) === String(accountId))
+      : (appState.adminUsers || []).find((user) => String(user.id) === String(accountId));
+    if (!record) {
+      return;
+    }
+
+    elements.accountDetailForm.elements.accountType.value = accountType;
+    elements.accountDetailForm.elements.accountId.value = String(accountId);
+
+    if (isCrew) {
+      elements.accountDetailSummary.innerHTML = `
+        <article class="info-card">
+          <strong>${escapeHtml(record.name)}</strong><br>
+          <span class="muted">${escapeHtml(record.type)} | Capacity ${escapeHtml(record.capacity)}</span><br>
+          <span class="muted">Available now: ${escapeHtml(record.available)}</span>
+        </article>
+      `;
+      elements.accountDetailFields.innerHTML = `
+        <label>Primary contact<input name="contactName" value="${escapeHtml(record.contactName || "")}" placeholder="Optional contact name"></label>
+        <label>Contact email<input name="contactEmail" value="${escapeHtml(record.contactEmail || "")}" placeholder="Optional email"></label>
+        <label>Contact phone<input name="contactPhone" value="${escapeHtml(record.contactPhone || "")}" placeholder="Optional phone number"></label>
+        <label>Office address<input name="officeAddress" value="${escapeHtml(record.officeAddress || "")}" placeholder="Optional office or yard address"></label>
+        <label>Zone of work<input name="coverageArea" value="${escapeHtml(record.coverageArea || "")}" placeholder="Optional work zone or coverage area"></label>
+        <label>Notes<textarea name="note" rows="5" placeholder="Optional crew notes">${escapeHtml(record.note || "")}</textarea></label>
+      `;
+    } else {
+      const isSelf = Number(record.id) === Number(appState.session?.id);
+      const nextStatus = record.status === "active" ? "inactive" : "active";
+      elements.accountDetailSummary.innerHTML = `
+        <article class="info-card">
+          <strong>${escapeHtml(record.name)}</strong><br>
+          <span class="muted">${escapeHtml(record.email)}</span><br>
+          <span class="muted">${escapeHtml(record.role)} | ${escapeHtml(record.status)}</span>
+          <div class="job-actions compact-actions">
+            <button
+              class="action-btn"
+              type="button"
+              data-action="toggle-account-status"
+              data-account-id="${record.id}"
+              data-next-status="${nextStatus}"
+              ${isSelf ? "disabled" : ""}
+            >${record.status === "active" ? "Deactivate account" : "Reactivate account"}</button>
+          </div>
+          ${isSelf ? '<p class="muted">Your own admin account cannot be deactivated here.</p>' : ""}
+        </article>
+      `;
+      elements.accountDetailFields.innerHTML = `
+        <label>Name<input name="name" value="${escapeHtml(record.name || "")}"></label>
+        <label>Phone<input name="phone" value="${escapeHtml(record.phone || "")}" placeholder="Optional phone number"></label>
+        <label>Office address<input name="officeAddress" value="${escapeHtml(record.officeAddress || "")}" placeholder="Optional office address"></label>
+        <label>Zone of work<input name="zoneOfWork" value="${escapeHtml(record.zoneOfWork || "")}" placeholder="Optional zone or market"></label>
+        <label>Notes<textarea name="note" rows="5" placeholder="Optional notes">${escapeHtml(record.note || "")}</textarea></label>
+      `;
+    }
+
+    elements.accountDetailDialog.showModal();
   }
 
   function filterCodeOptions(query) {
@@ -2132,6 +2194,8 @@
     });
     elements.closeJobDetailDialog.addEventListener("click", () => elements.jobDetailDialog.close());
     elements.cancelJobDetailDialog.addEventListener("click", () => elements.jobDetailDialog.close());
+    elements.closeAccountDetailDialog.addEventListener("click", () => elements.accountDetailDialog.close());
+    elements.cancelAccountDetailDialog.addEventListener("click", () => elements.accountDetailDialog.close());
 
     elements.rejectDialog.addEventListener("cancel", () => {
       elements.rejectError.textContent = "";
@@ -2203,44 +2267,75 @@
       await loadAdminData();
     });
 
-    elements.usersList.addEventListener("submit", async (event) => {
-      const form = event.target.closest('[data-account-form="user"]');
-      if (!form) {
+    document.body.addEventListener("click", (event) => {
+      const accountButton = event.target.closest('[data-action="open-account"]');
+      if (accountButton) {
+        openAccountDetailDialog(accountButton.dataset.accountType, accountButton.dataset.accountId);
         return;
       }
-      event.preventDefault();
-      const payload = new FormData(form);
-      await api(`/api/admin/users/${form.dataset.userId}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          name: payload.get("name"),
-          phone: payload.get("phone"),
-          officeAddress: payload.get("officeAddress"),
-          zoneOfWork: payload.get("zoneOfWork"),
-          note: payload.get("note")
-        })
-      });
-      await refreshApp();
+
+      const statusButton = event.target.closest('[data-action="toggle-account-status"]');
+      if (!statusButton) {
+        return;
+      }
+
+      const accountId = String(statusButton.dataset.accountId || "");
+      const nextStatus = String(statusButton.dataset.nextStatus || "inactive");
+      const record = (appState.adminUsers || []).find((user) => String(user.id) === accountId);
+      if (!record) {
+        return;
+      }
+      if (!window.confirm(`${nextStatus === "inactive" ? "Deactivate" : "Reactivate"} ${record.name}'s account?`)) {
+        return;
+      }
+      void (async () => {
+        await api(`/api/admin/users/${accountId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            name: record.name,
+            status: nextStatus,
+            phone: record.phone || "",
+            officeAddress: record.officeAddress || "",
+            zoneOfWork: record.zoneOfWork || "",
+            note: record.note || ""
+          })
+        });
+        elements.accountDetailDialog.close();
+        await refreshApp();
+      })();
     });
 
-    elements.crewAccountsList.addEventListener("submit", async (event) => {
-      const form = event.target.closest('[data-account-form="crew"]');
-      if (!form) {
-        return;
-      }
+    elements.accountDetailForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const payload = new FormData(form);
-      await api(`/api/admin/crews/${form.dataset.crewId}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          contactName: payload.get("contactName"),
-          contactEmail: payload.get("contactEmail"),
-          contactPhone: payload.get("contactPhone"),
-          officeAddress: payload.get("officeAddress"),
-          coverageArea: payload.get("coverageArea"),
-          note: payload.get("note")
-        })
-      });
+      const form = new FormData(elements.accountDetailForm);
+      const accountType = String(form.get("accountType") || "");
+      const accountId = String(form.get("accountId") || "");
+      if (accountType === "crew") {
+        await api(`/api/admin/crews/${accountId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            contactName: form.get("contactName"),
+            contactEmail: form.get("contactEmail"),
+            contactPhone: form.get("contactPhone"),
+            officeAddress: form.get("officeAddress"),
+            coverageArea: form.get("coverageArea"),
+            note: form.get("note")
+          })
+        });
+      } else {
+        await api(`/api/admin/users/${accountId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            name: form.get("name"),
+            status: ((appState.adminUsers || []).find((user) => String(user.id) === accountId)?.status) || "active",
+            phone: form.get("phone"),
+            officeAddress: form.get("officeAddress"),
+            zoneOfWork: form.get("zoneOfWork"),
+            note: form.get("note")
+          })
+        });
+      }
+      elements.accountDetailDialog.close();
       await refreshApp();
     });
 

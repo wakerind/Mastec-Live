@@ -296,10 +296,11 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
     async updateUser(userId, next) {
       await pool.query(`
         UPDATE users
-        SET name = $1, phone = $2, office_address = $3, zone_of_work = $4, note = $5
-        WHERE id = $6
+        SET name = $1, status = $2, phone = $3, office_address = $4, zone_of_work = $5, note = $6
+        WHERE id = $7
       `, [
         next.name || "",
+        next.status || "active",
         next.phone || "",
         next.officeAddress || "",
         next.zoneOfWork || "",

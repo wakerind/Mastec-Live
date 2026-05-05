@@ -442,10 +442,11 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
     async updateUser(userId, next) {
       db.prepare(`
         UPDATE users
-        SET name = ?, phone = ?, office_address = ?, zone_of_work = ?, note = ?
+        SET name = ?, status = ?, phone = ?, office_address = ?, zone_of_work = ?, note = ?
         WHERE id = ?
       `).run(
         next.name || "",
+        next.status || "active",
         next.phone || "",
         next.officeAddress || "",
         next.zoneOfWork || "",

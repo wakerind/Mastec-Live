@@ -520,6 +520,7 @@ const server = http.createServer(async (req, res) => {
       await db.updateUser(userId, {
         ...existingUser,
         name: String(body.name ?? existingUser.name ?? ""),
+        status: String(body.status ?? existingUser.status ?? "active"),
         phone: String(body.phone ?? existingUser.phone ?? ""),
         officeAddress: String(body.officeAddress ?? existingUser.officeAddress ?? ""),
         zoneOfWork: String(body.zoneOfWork ?? existingUser.zoneOfWork ?? ""),
