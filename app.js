@@ -2139,6 +2139,23 @@
   }
 
   function registerEvents() {
+    const loginEmailInput = elements.loginForm.querySelector('input[name="email"]');
+    const loginPasswordInput = elements.loginForm.querySelector('input[name="password"]');
+
+    function fillDemoCredentials(email, password) {
+      elements.loginError.textContent = "";
+      if (!loginEmailInput || !loginPasswordInput) {
+        return;
+      }
+      loginEmailInput.value = email;
+      loginPasswordInput.value = password;
+      loginEmailInput.dispatchEvent(new Event("input", { bubbles: true }));
+      loginPasswordInput.dispatchEvent(new Event("input", { bubbles: true }));
+      loginEmailInput.dispatchEvent(new Event("change", { bubbles: true }));
+      loginPasswordInput.dispatchEvent(new Event("change", { bubbles: true }));
+      loginPasswordInput.focus();
+    }
+
     elements.loginForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       elements.loginError.textContent = "";
@@ -2463,18 +2480,14 @@
     elements.jobForm.elements.plannedHours.addEventListener("input", refreshJobFormCrewOptions);
     elements.jobForm.elements.plannedHours.addEventListener("change", refreshJobFormCrewOptions);
 
-    elements.demoAdminCreds.addEventListener("click", () => {
-      elements.loginError.textContent = "";
-      elements.loginForm.elements.email.value = "admin@fieldsight.local";
-      elements.loginForm.elements.password.value = "Admin123!";
-      elements.loginForm.elements.password.focus();
+    elements.demoAdminCreds.addEventListener("click", (event) => {
+      event.preventDefault();
+      fillDemoCredentials("admin@fieldsight.local", "Admin123!");
     });
 
-    elements.demoFieldCreds.addEventListener("click", () => {
-      elements.loginError.textContent = "";
-      elements.loginForm.elements.email.value = "crew1@fieldsight.local";
-      elements.loginForm.elements.password.value = "Field123!";
-      elements.loginForm.elements.password.focus();
+    elements.demoFieldCreds.addEventListener("click", (event) => {
+      event.preventDefault();
+      fillDemoCredentials("crew1@fieldsight.local", "Field123!");
     });
 
     document.body.addEventListener("dragstart", (event) => {
