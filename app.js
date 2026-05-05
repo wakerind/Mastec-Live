@@ -38,6 +38,7 @@
     historyList: document.getElementById("historyList"),
     kpiList: document.getElementById("kpiList"),
     usersList: document.getElementById("usersList"),
+    crewAccountsList: document.getElementById("crewAccountsList"),
     invitesList: document.getElementById("invitesList"),
     inviteForm: document.getElementById("inviteForm"),
     intakeStatusFilter: document.getElementById("intakeStatusFilter"),
@@ -1571,12 +1572,7 @@
       api("/api/admin/invites")
     ]);
 
-    elements.usersList.innerHTML = usersPayload.users.length ? usersPayload.users.map((user) => `
-      <article class="info-card">
-        <strong>${user.name}</strong><br>
-        <span class="muted">${user.email} | ${user.role} | ${user.status}</span>
-      </article>
-    `).join("") : emptyState("No users found.");
+    renderAccountsData(usersPayload.users);
 
     elements.invitesList.innerHTML = invitesPayload.invites.length ? invitesPayload.invites.map((invite) => `
       <article class="info-card">
@@ -1749,6 +1745,45 @@
     );
   }
 
+  function renderAccountsData(users) {
+    elements.usersList.innerHTML = users.length ? users.map((user) => `
+      <form class="info-card account-card" data-account-form="user" data-user-id="${user.id}">
+        <div class="account-card-header">
+          <div>
+            <strong>${escapeHtml(user.name)}</strong><br>
+            <span class="muted">${escapeHtml(user.email)}</span>
+          </div>
+          <span class="pill">${escapeHtml(user.role)} | ${escapeHtml(user.status)}</span>
+        </div>
+        <label>Name<input name="name" value="${escapeHtml(user.name)}"></label>
+        <label>Phone<input name="phone" value="${escapeHtml(user.phone || "")}" placeholder="Optional phone number"></label>
+        <label>Office address<input name="officeAddress" value="${escapeHtml(user.officeAddress || "")}" placeholder="Optional office address"></label>
+        <label>Zone of work<input name="zoneOfWork" value="${escapeHtml(user.zoneOfWork || "")}" placeholder="Optional zone or market"></label>
+        <label>Notes<textarea name="note" rows="3" placeholder="Optional notes">${escapeHtml(user.note || "")}</textarea></label>
+        <button class="action-btn save-btn" type="submit">Save user info</button>
+      </form>
+    `).join("") : emptyState("No users found.");
+
+    elements.crewAccountsList.innerHTML = appState.crews.length ? appState.crews.map((crew) => `
+      <form class="info-card account-card" data-account-form="crew" data-crew-id="${crew.id}">
+        <div class="account-card-header">
+          <div>
+            <strong>${escapeHtml(crew.name)}</strong><br>
+            <span class="muted">${escapeHtml(crew.type)} | Capacity ${escapeHtml(crew.capacity)}</span>
+          </div>
+          <span class="pill">${escapeHtml(crew.available)} available</span>
+        </div>
+        <label>Primary contact<input name="contactName" value="${escapeHtml(crew.contactName || "")}" placeholder="Optional contact name"></label>
+        <label>Contact email<input name="contactEmail" value="${escapeHtml(crew.contactEmail || "")}" placeholder="Optional email"></label>
+        <label>Contact phone<input name="contactPhone" value="${escapeHtml(crew.contactPhone || "")}" placeholder="Optional phone number"></label>
+        <label>Office address<input name="officeAddress" value="${escapeHtml(crew.officeAddress || "")}" placeholder="Optional office or yard address"></label>
+        <label>Zone of work<input name="coverageArea" value="${escapeHtml(crew.coverageArea || "")}" placeholder="Optional work zone or coverage area"></label>
+        <label>Notes<textarea name="note" rows="3" placeholder="Optional crew notes">${escapeHtml(crew.note || "")}</textarea></label>
+        <button class="action-btn save-btn" type="submit">Save crew info</button>
+      </form>
+    `).join("") : emptyState("No crews found.");
+  }
+
   function filterCodeOptions(query) {
     const normalizedQuery = String(query || "").trim().toLowerCase();
     Array.from(elements.updateForm.elements.codesUsed.options).forEach((option) => {
@@ -1768,21 +1803,12 @@
         <strong>${job.title}</strong><br>
         <span class="muted">${job.market} | ${job.jobType}</span><br>
         <span class="muted">Address: ${job.jobAddress || job.market}</span><br>
-        <span class="muted">Description: ${job.jobDescription || job.issue}</span><br>
+        <span class="muted">Assigned team: ${job.assignedTo || "Not assigned yet"}</span><br>
         <span class="muted">Dispatcher: ${job.dispatcherName || "Not listed"} | ${formatPhone(job.dispatcherPhone)}</span><br>
-        <span class="muted">Assignment date: ${formatDateTime(job.assignmentAt || job.createdAt)}</span><br>
         <span class="muted">Schedule date: ${formatDateTime(job.scheduledStartAt)}</span><br>
         <span class="muted">Due date: ${formatDateTime(job.dueAt || job.scheduledStartAt)}</span><br>
-        <span class="muted">Dispatch time: ${job.dispatchedAt ? formatDateTime(job.dispatchedAt) : "Pending"}</span><br>
-        <span class="muted">Completion date: ${job.completedAt ? formatDateTime(job.completedAt) : "Pending"}</span><br>
-        <span class="muted">Workflow step: ${getLifecycleStage(job)}</span><br>
-        <span class="muted">Live status: ${getOperationalStatus(job)}</span><br>
-        <span class="muted">Admin signoff: ${isAdminApproved(job) ? "Complete" : "Pending"}</span><br>
-        <span class="muted">Team accepted: ${isAccepted(job) ? "Complete" : "Pending"}</span><br>
-        <span class="muted">Final admin review: ${isAdminReviewed(job) ? "Complete" : "Pending"}</span><br>
-        <span class="muted">Started: ${hasStarted(job) ? "Yes" : "No"}</span><br>
-        <span class="muted">Blocker: ${job.blockerReason ? `${job.blockerStage || job.lifecycleStage} | ${job.blockerReason}` : "None"}</span><br>
-        <span class="muted">Assignment note: Vendor availability is currently based on schedule conflicts, not location restrictions.</span>
+        <span class="muted">Description: ${job.jobDescription || "No description added yet."}</span><br>
+        <span class="muted">Notes: ${job.blockerReason || job.issue || "No notes added yet."}</span>
       </article>
     `;
     elements.jobDetailQuickLinks.innerHTML = `
@@ -2175,6 +2201,47 @@
       });
       elements.inviteForm.reset();
       await loadAdminData();
+    });
+
+    elements.usersList.addEventListener("submit", async (event) => {
+      const form = event.target.closest('[data-account-form="user"]');
+      if (!form) {
+        return;
+      }
+      event.preventDefault();
+      const payload = new FormData(form);
+      await api(`/api/admin/users/${form.dataset.userId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: payload.get("name"),
+          phone: payload.get("phone"),
+          officeAddress: payload.get("officeAddress"),
+          zoneOfWork: payload.get("zoneOfWork"),
+          note: payload.get("note")
+        })
+      });
+      await refreshApp();
+    });
+
+    elements.crewAccountsList.addEventListener("submit", async (event) => {
+      const form = event.target.closest('[data-account-form="crew"]');
+      if (!form) {
+        return;
+      }
+      event.preventDefault();
+      const payload = new FormData(form);
+      await api(`/api/admin/crews/${form.dataset.crewId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          contactName: payload.get("contactName"),
+          contactEmail: payload.get("contactEmail"),
+          contactPhone: payload.get("contactPhone"),
+          officeAddress: payload.get("officeAddress"),
+          coverageArea: payload.get("coverageArea"),
+          note: payload.get("note")
+        })
+      });
+      await refreshApp();
     });
 
     elements.assignForm.addEventListener("submit", async (event) => {

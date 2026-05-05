@@ -505,6 +505,55 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "PATCH" && url.pathname.startsWith("/api/admin/users/")) {
+      const user = await requireAdmin(req, res);
+      if (!user) {
+        return;
+      }
+      const userId = Number(url.pathname.split("/").pop());
+      const body = await readBody(req);
+      const existingUser = await db.findUserById(userId);
+      if (!existingUser) {
+        sendJson(res, 404, { error: "User not found" });
+        return;
+      }
+      await db.updateUser(userId, {
+        ...existingUser,
+        name: String(body.name ?? existingUser.name ?? ""),
+        phone: String(body.phone ?? existingUser.phone ?? ""),
+        officeAddress: String(body.officeAddress ?? existingUser.officeAddress ?? ""),
+        zoneOfWork: String(body.zoneOfWork ?? existingUser.zoneOfWork ?? ""),
+        note: String(body.note ?? existingUser.note ?? "")
+      });
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === "PATCH" && url.pathname.startsWith("/api/admin/crews/")) {
+      const user = await requireAdmin(req, res);
+      if (!user) {
+        return;
+      }
+      const crewId = Number(url.pathname.split("/").pop());
+      const body = await readBody(req);
+      const existingCrew = (await db.listCrewsWithUtilization()).find((crew) => Number(crew.id) === crewId);
+      if (!existingCrew) {
+        sendJson(res, 404, { error: "Crew not found" });
+        return;
+      }
+      await db.updateCrew(crewId, {
+        ...existingCrew,
+        contactName: String(body.contactName ?? existingCrew.contactName ?? ""),
+        contactEmail: String(body.contactEmail ?? existingCrew.contactEmail ?? ""),
+        contactPhone: String(body.contactPhone ?? existingCrew.contactPhone ?? ""),
+        coverageArea: String(body.coverageArea ?? existingCrew.coverageArea ?? ""),
+        officeAddress: String(body.officeAddress ?? existingCrew.officeAddress ?? ""),
+        note: String(body.note ?? existingCrew.note ?? "")
+      });
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/admin/invites") {
       const user = await requireAdmin(req, res);
       if (!user) {

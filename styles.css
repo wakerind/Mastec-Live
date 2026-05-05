@@ -738,18 +738,26 @@ button:hover {
 }
 
 .action-btn {
-  border: 1px solid var(--line);
+  border: 2px solid var(--line-strong);
   background: white;
   border-radius: 999px;
-  padding: 10px 12px;
+  padding: 9px 12px;
   cursor: pointer;
+  color: var(--text);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
 }
 
 .action-link {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   text-decoration: none;
   color: var(--text);
+}
+
+.action-btn:hover,
+.action-link:hover {
+  border-color: #2f6db1;
 }
 
 .sheet-wrap {
@@ -1081,6 +1089,40 @@ button:hover {
 .detail-stack {
   display: grid;
   gap: 12px;
+}
+
+.top-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.top-actions .action-btn,
+.top-actions .action-link {
+  width: 100%;
+  justify-content: flex-start;
+  border-radius: 14px;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+}
+
+.account-card {
+  gap: 10px;
+}
+
+.account-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.save-btn {
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.account-invites {
+  margin-top: 20px;
 }
 
 .dialog-card label {

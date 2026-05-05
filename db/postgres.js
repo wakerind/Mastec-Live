@@ -88,6 +88,10 @@ async function hydrateLegacyJobData(pool) {
 }
 
 async function ensureJobColumns(pool) {
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS office_address TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS zone_of_work TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_value NUMERIC(12, 2) NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS labor_cost NUMERIC(12, 2) NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS planned_hours NUMERIC(10, 2) NOT NULL DEFAULT 8");
@@ -113,6 +117,7 @@ async function ensureJobColumns(pool) {
   await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS contact_email TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS contact_phone TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS coverage_area TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE crews ADD COLUMN IF NOT EXISTS office_address TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE job_updates ADD COLUMN IF NOT EXISTS update_type TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE job_updates ADD COLUMN IF NOT EXISTS work_done TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE job_updates ADD COLUMN IF NOT EXISTS codes_used TEXT NOT NULL DEFAULT '[]'");
@@ -200,7 +205,7 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
   }
 
   async function listCrewsWithUtilization() {
-    const crews = (await pool.query("SELECT id, name, type, capacity, note, contact_name AS \"contactName\", contact_email AS \"contactEmail\", contact_phone AS \"contactPhone\", coverage_area AS \"coverageArea\" FROM crews ORDER BY name")).rows;
+    const crews = (await pool.query("SELECT id, name, type, capacity, note, contact_name AS \"contactName\", contact_email AS \"contactEmail\", contact_phone AS \"contactPhone\", coverage_area AS \"coverageArea\", office_address AS \"officeAddress\" FROM crews ORDER BY name")).rows;
     const assignments = (await pool.query(`
       SELECT assigned_to AS "assignedTo", COUNT(*)::int AS assigned
       FROM jobs
@@ -231,7 +236,15 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
       `, [email])).rows[0];
     },
     async findUserById(id) {
-      return (await pool.query("SELECT id, email, name, role, status FROM users WHERE id = $1", [id])).rows[0];
+      return (await pool.query(`
+        SELECT
+          id, email, name, role, status,
+          COALESCE(phone, '') AS phone,
+          COALESCE(office_address, '') AS "officeAddress",
+          COALESCE(zone_of_work, '') AS "zoneOfWork",
+          COALESCE(note, '') AS note
+        FROM users WHERE id = $1
+      `, [id])).rows[0];
     },
     async createSession(token, userId) {
       await pool.query("INSERT INTO sessions (token, user_id, created_at) VALUES ($1, $2, $3)", [token, userId, nowIso()]);
@@ -270,9 +283,44 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
     },
     async listUsers() {
       return (await pool.query(`
-        SELECT id::int AS id, email, name, role, status, created_at AS "createdAt"
+        SELECT
+          id::int AS id, email, name, role, status,
+          COALESCE(phone, '') AS phone,
+          COALESCE(office_address, '') AS "officeAddress",
+          COALESCE(zone_of_work, '') AS "zoneOfWork",
+          COALESCE(note, '') AS note,
+          created_at AS "createdAt"
         FROM users ORDER BY id DESC
       `)).rows;
+    },
+    async updateUser(userId, next) {
+      await pool.query(`
+        UPDATE users
+        SET name = $1, phone = $2, office_address = $3, zone_of_work = $4, note = $5
+        WHERE id = $6
+      `, [
+        next.name || "",
+        next.phone || "",
+        next.officeAddress || "",
+        next.zoneOfWork || "",
+        next.note || "",
+        userId
+      ]);
+    },
+    async updateCrew(crewId, next) {
+      await pool.query(`
+        UPDATE crews
+        SET contact_name = $1, contact_email = $2, contact_phone = $3, coverage_area = $4, office_address = $5, note = $6
+        WHERE id = $7
+      `, [
+        next.contactName || "",
+        next.contactEmail || "",
+        next.contactPhone || "",
+        next.coverageArea || "",
+        next.officeAddress || "",
+        next.note || "",
+        crewId
+      ]);
     },
     async createUser({ email, passwordHash, name, role }) {
       const result = await pool.query(`

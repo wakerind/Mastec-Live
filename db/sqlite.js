@@ -105,7 +105,7 @@ function hydrateLegacyJobData(db) {
 }
 
 function listCrewsWithUtilization(db) {
-  const crews = db.prepare("SELECT id, name, type, capacity, note, contact_name, contact_email, contact_phone, coverage_area FROM crews ORDER BY name").all();
+  const crews = db.prepare("SELECT id, name, type, capacity, note, contact_name, contact_email, contact_phone, coverage_area, office_address FROM crews ORDER BY name").all();
   const activeAssignments = db.prepare(`
     SELECT assigned_to, COUNT(*) AS assigned
     FROM jobs
@@ -128,7 +128,8 @@ function listCrewsWithUtilization(db) {
       contactName: crew.contact_name,
       contactEmail: crew.contact_email,
       contactPhone: crew.contact_phone,
-      coverageArea: crew.coverage_area
+      coverageArea: crew.coverage_area,
+      officeAddress: crew.office_address
     };
   });
 }
@@ -149,6 +150,10 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       name TEXT NOT NULL,
       role TEXT NOT NULL CHECK(role IN ('admin', 'field')),
       status TEXT NOT NULL DEFAULT 'active',
+      phone TEXT NOT NULL DEFAULT '',
+      office_address TEXT NOT NULL DEFAULT '',
+      zone_of_work TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL
     );
 
@@ -177,7 +182,8 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       contact_name TEXT NOT NULL DEFAULT '',
       contact_email TEXT NOT NULL DEFAULT '',
       contact_phone TEXT NOT NULL DEFAULT '',
-      coverage_area TEXT NOT NULL DEFAULT ''
+      coverage_area TEXT NOT NULL DEFAULT '',
+      office_address TEXT NOT NULL DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS jobs (
@@ -281,6 +287,11 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
   addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN contact_email TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN contact_phone TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN coverage_area TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "ALTER TABLE crews ADD COLUMN office_address TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "ALTER TABLE users ADD COLUMN phone TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "ALTER TABLE users ADD COLUMN office_address TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "ALTER TABLE users ADD COLUMN zone_of_work TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "ALTER TABLE users ADD COLUMN note TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN update_type TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN work_done TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "ALTER TABLE job_updates ADD COLUMN codes_used TEXT NOT NULL DEFAULT '[]'");
@@ -369,7 +380,15 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       `).get(email);
     },
     async findUserById(id) {
-      return db.prepare("SELECT id, email, name, role, status FROM users WHERE id = ?").get(id);
+      return db.prepare(`
+        SELECT
+          id, email, name, role, status,
+          COALESCE(phone, '') AS phone,
+          COALESCE(office_address, '') AS officeAddress,
+          COALESCE(zone_of_work, '') AS zoneOfWork,
+          COALESCE(note, '') AS note
+        FROM users WHERE id = ?
+      `).get(id);
     },
     async createSession(token, userId) {
       db.prepare("INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)").run(token, userId, nowIso());
@@ -409,10 +428,45 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
     },
     async listUsers() {
       return db.prepare(`
-        SELECT id, email, name, role, status, created_at AS createdAt
+        SELECT
+          id, email, name, role, status,
+          COALESCE(phone, '') AS phone,
+          COALESCE(office_address, '') AS officeAddress,
+          COALESCE(zone_of_work, '') AS zoneOfWork,
+          COALESCE(note, '') AS note,
+          created_at AS createdAt
         FROM users
         ORDER BY id DESC
       `).all();
+    },
+    async updateUser(userId, next) {
+      db.prepare(`
+        UPDATE users
+        SET name = ?, phone = ?, office_address = ?, zone_of_work = ?, note = ?
+        WHERE id = ?
+      `).run(
+        next.name || "",
+        next.phone || "",
+        next.officeAddress || "",
+        next.zoneOfWork || "",
+        next.note || "",
+        userId
+      );
+    },
+    async updateCrew(crewId, next) {
+      db.prepare(`
+        UPDATE crews
+        SET contact_name = ?, contact_email = ?, contact_phone = ?, coverage_area = ?, office_address = ?, note = ?
+        WHERE id = ?
+      `).run(
+        next.contactName || "",
+        next.contactEmail || "",
+        next.contactPhone || "",
+        next.coverageArea || "",
+        next.officeAddress || "",
+        next.note || "",
+        crewId
+      );
     },
     async createUser({ email, passwordHash, name, role }) {
       const result = db.prepare(`
