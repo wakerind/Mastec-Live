@@ -121,8 +121,6 @@
     inviteError: document.getElementById("inviteError"),
     syncStatusBadge: document.getElementById("syncStatusBadge"),
     sessionChipRow: document.getElementById("sessionChipRow"),
-    heroTitle: document.getElementById("heroTitle"),
-    mobileTabbarSecondary: document.querySelector(".mobile-tabbar-secondary"),
     mobileTabs: document.querySelectorAll(".mobile-tab")
   };
 
@@ -1175,9 +1173,6 @@
     if (elements.metricGrid) {
       elements.metricGrid.classList.toggle("hidden", currentScreen !== "overview");
     }
-    if (elements.mobileTabbarSecondary) {
-      elements.mobileTabbarSecondary.classList.toggle("hidden", currentScreen === "overview");
-    }
   }
 
   function renderAppShell() {
@@ -1198,14 +1193,12 @@
         tab.textContent = config.label;
       });
     }
-    if (elements.heroTitle) {
-      elements.heroTitle.textContent = appState.session.role === "admin" ? "Welcome, Dispatcher" : "Welcome";
-    }
     if (elements.sessionChipRow) {
       const roleLabel = appState.session.role === "admin" ? "DISPATCHER" : "TECHNICIAN";
+      const userLabel = appState.session.role === "admin" ? "Admin" : appState.session.name;
       elements.sessionChipRow.innerHTML = `
         <span class="session-chip session-chip-muted">Signed in as</span>
-        <span class="session-chip session-chip-strong">${escapeHtml(appState.session.name)}</span>
+        <span class="session-chip session-chip-strong">${escapeHtml(userLabel)}</span>
         <span class="session-chip">${escapeHtml(roleLabel)}</span>
         <button class="session-chip session-chip-link" type="button" id="sessionSignOutClone">Sign out</button>
       `;

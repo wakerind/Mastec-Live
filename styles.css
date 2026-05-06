@@ -1262,8 +1262,11 @@ dialog::backdrop {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   padding: 14px 18px;
+  position: sticky;
+  top: 0;
+  z-index: 40;
   border-radius: 22px;
   background: linear-gradient(135deg, #2d66e0, #2f6db1);
   color: #ffffff;
@@ -1277,7 +1280,13 @@ dialog::backdrop {
 }
 
 .session-strip {
-  margin-bottom: 18px;
+  position: sticky;
+  top: 82px;
+  z-index: 39;
+  margin-bottom: 8px;
+  padding: 6px 0;
+  background: linear-gradient(180deg, rgba(248, 251, 253, 0.96), rgba(248, 251, 253, 0.9));
+  backdrop-filter: blur(10px);
 }
 
 .session-chip-row {
@@ -1536,9 +1545,9 @@ dialog::backdrop {
 
 .mobile-tabbar {
   position: sticky;
-  top: 10px;
+  top: 134px;
   z-index: 20;
-  display: none;
+  display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin: 0 0 12px;
@@ -1699,15 +1708,17 @@ dialog::backdrop {
     grid-template-columns: 1fr;
   }
 
-  .mobile-tabbar {
-    display: grid;
-  }
 }
 
 @media (max-width: 560px) {
   .app-bar {
     border-radius: 0 0 18px 18px;
     margin: -14px -14px 12px;
+    top: 0;
+  }
+
+  .session-strip {
+    top: 74px;
   }
 
   .panel,
@@ -1756,6 +1767,7 @@ dialog::backdrop {
   }
 
   .mobile-tabbar {
+    top: 122px;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
     padding: 6px;
