@@ -281,6 +281,73 @@ button:hover {
   gap: 14px;
 }
 
+.field-command-grid {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: 1.7fr repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.field-focus-card,
+.field-metric-card {
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 247, 250, 0.92));
+  padding: 20px;
+}
+
+.field-focus-card {
+  display: grid;
+  gap: 12px;
+}
+
+.field-focus-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.field-focus-card h4,
+.field-metric-card strong {
+  margin: 0;
+  font-family: "Bahnschrift", "Arial Narrow", sans-serif;
+}
+
+.field-focus-note {
+  margin: 0;
+}
+
+.field-metric-card {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.field-metric-card strong {
+  font-size: 2rem;
+}
+
+.sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.sync-pill.sync-live {
+  background: rgba(21, 128, 61, 0.14);
+  color: var(--success);
+}
+
+.sync-pill.sync-offline {
+  background: rgba(194, 65, 12, 0.14);
+  color: var(--danger);
+}
+
 .shortcut-card {
   border: 1px solid var(--line);
   border-radius: 22px;
@@ -1021,6 +1088,10 @@ button:hover {
   color: var(--info);
   text-decoration: none;
   font-weight: 600;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
 }
 
 .attachment-list {
@@ -1189,6 +1260,10 @@ dialog::backdrop {
     grid-template-columns: 1fr 1fr;
   }
 
+  .field-command-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .stage-board {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1239,6 +1314,10 @@ dialog::backdrop {
   .content-grid,
   .dashboard-grid,
   .login-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .field-command-grid {
     grid-template-columns: 1fr;
   }
 

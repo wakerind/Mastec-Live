@@ -31,6 +31,7 @@
     deadlineList: document.getElementById("deadlineList"),
     alertList: document.getElementById("alertList"),
     dashboardShortcuts: document.getElementById("dashboardShortcuts"),
+    fieldCommandGrid: document.getElementById("fieldCommandGrid"),
     historyPreview: document.getElementById("historyPreview"),
     dashboardBreakdown: document.getElementById("dashboardBreakdown"),
     masterGrid: document.getElementById("masterGrid"),
@@ -263,6 +264,9 @@
   }
 
   function getDefaultScreen() {
+    if (appState.session?.role === "field") {
+      return "field";
+    }
     return "overview";
   }
 
@@ -271,8 +275,8 @@
       return [];
     }
     return appState.session.role === "field"
-      ? ["overview", "assignment"]
-      : ["overview", "admin", "assignment", "history", "accounts", "leadership"];
+      ? ["overview", "assignment", "field"]
+      : ["overview", "admin", "assignment", "field", "history", "accounts", "leadership"];
   }
 
   function getSafeScreen(screenName) {
@@ -943,6 +947,9 @@
 
     elements.sessionRoleLabel.textContent = appState.session.role === "admin" ? "Administrator portal" : "Field portal";
     elements.sessionUserLabel.textContent = `${appState.session.name} | ${appState.session.email}`;
+    if (appState.session.role === "field" && currentScreen === "overview") {
+      currentScreen = "field";
+    }
     setScreen(getSafeScreen(currentScreen));
   }
 
@@ -1066,6 +1073,89 @@
         <span>${shortcut.note}</span>
       </button>
     `).join("");
+  }
+
+  function getPrimaryFieldAction(job) {
+    if (canFieldAccept(job)) {
+      return { label: "Accept job", action: "accept-job" };
+    }
+    if (canFieldDispatch(job)) {
+      return { label: "Dispatch", action: "dispatch-job" };
+    }
+    if (canFieldStart(job)) {
+      return { label: "Start job", action: "start-job" };
+    }
+    if (canFieldComplete(job)) {
+      return { label: "Complete job", action: "complete-job" };
+    }
+    return { label: "Open job", action: "open-job" };
+  }
+
+  function renderFieldCommandCenter() {
+    if (!elements.fieldCommandGrid) {
+      return;
+    }
+    const jobs = appState.jobs;
+    const assigned = jobs.filter((job) => canFieldAccept(job)).length;
+    const readyToStart = jobs.filter((job) => canFieldStart(job)).length;
+    const inProgress = jobs.filter((job) => getOperationalStatus(job) === "In Progress").length;
+    const blockers = jobs.filter((job) => Boolean(job.blockerReason) && !["Completed", "Closed"].includes(getLifecycleStage(job))).length;
+    const topJob = [...jobs]
+      .filter((job) => !["Completed", "Closed"].includes(getLifecycleStage(job)))
+      .sort((left, right) => {
+        const leftPriority = canFieldComplete(left) ? 4 : canFieldStart(left) ? 3 : canFieldDispatch(left) ? 2 : canFieldAccept(left) ? 1 : 0;
+        const rightPriority = canFieldComplete(right) ? 4 : canFieldStart(right) ? 3 : canFieldDispatch(right) ? 2 : canFieldAccept(right) ? 1 : 0;
+        if (leftPriority !== rightPriority) {
+          return rightPriority - leftPriority;
+        }
+        return new Date(left.scheduledStartAt || 0) - new Date(right.scheduledStartAt || 0);
+      })[0];
+    const syncTone = navigator.onLine ? "sync-live" : "sync-offline";
+    const primaryAction = topJob ? getPrimaryFieldAction(topJob) : null;
+
+    elements.fieldCommandGrid.innerHTML = `
+      <article class="field-focus-card">
+        <div class="field-focus-header">
+          <div>
+            <p class="eyebrow">Crew command</p>
+            <h4>${topJob ? topJob.title : "No active field job"}</h4>
+          </div>
+          <span class="sync-pill ${syncTone}">${navigator.onLine ? "Live sync" : "Offline now"}</span>
+        </div>
+        <p class="muted">${topJob ? (topJob.jobAddress || topJob.market) : "You are clear for now. New assignments will appear here."}</p>
+        <div class="job-tags">
+          ${topJob ? `<span class="pill">${getOperationalStatus(topJob)}</span>` : ""}
+          ${topJob ? `<span class="pill">Scheduled ${formatDateTime(topJob.scheduledStartAt)}</span>` : ""}
+          ${topJob && topJob.blockerReason ? `<span class="pill">${topJob.blockerReason}</span>` : ""}
+        </div>
+        <p class="field-focus-note">${topJob ? (topJob.jobDescription || topJob.issue) : "Stay signed in on your phone to pick up the next job quickly."}</p>
+        <div class="job-actions">
+          ${topJob && primaryAction ? `<button class="action-btn" data-action="${primaryAction.action}" data-id="${topJob.id}">${primaryAction.label}</button>` : ""}
+          ${topJob ? `<button class="action-btn" data-action="log-update" data-id="${topJob.id}">Add update</button>` : ""}
+          ${topJob && getMapsUrl(topJob) ? `<a class="action-btn action-link" href="${getMapsUrl(topJob)}" target="_blank" rel="noreferrer">Open in Maps</a>` : ""}
+        </div>
+      </article>
+      <article class="field-metric-card">
+        <p class="eyebrow">Assigned now</p>
+        <strong>${assigned}</strong>
+        <span class="muted">Jobs waiting on acknowledgement</span>
+      </article>
+      <article class="field-metric-card">
+        <p class="eyebrow">Ready to start</p>
+        <strong>${readyToStart}</strong>
+        <span class="muted">Scheduled work that can move into progress</span>
+      </article>
+      <article class="field-metric-card">
+        <p class="eyebrow">In progress</p>
+        <strong>${inProgress}</strong>
+        <span class="muted">Active jobs your crew is working right now</span>
+      </article>
+      <article class="field-metric-card">
+        <p class="eyebrow">Blockers</p>
+        <strong>${blockers}</strong>
+        <span class="muted">Jobs that need attention before closeout</span>
+      </article>
+    `;
   }
 
   function renderHistoryPreview() {
@@ -1675,6 +1765,7 @@
     fillCrewDatalist(elements.crewOptions);
     populateHistoryTypeFilter();
     populateKpiEntityFilter();
+    renderFieldCommandCenter();
     renderFieldJobs(filters.field);
     renderHistoryList(filters.history);
     renderKpis(filters.kpiGroup, filters.kpiEntity, filters.kpiDateFrom, filters.kpiDateTo);
@@ -2167,7 +2258,9 @@
       await updateJob(jobId, {
         blockerReason,
         blockerStage: getLifecycleStage(job),
-        issue: blockerReason
+        issue: blockerReason,
+        sourceAction: "addBlocker",
+        source: "field-actions"
       });
       return;
     }
@@ -2181,7 +2274,9 @@
       await updateJob(jobId, {
         blockerReason: "",
         blockerStage: "",
-        issue: "Blocker cleared. Work resumed."
+        issue: "Blocker cleared. Work resumed.",
+        sourceAction: "clearBlocker",
+        source: "field-actions"
       });
       return;
     }
