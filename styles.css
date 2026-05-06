@@ -1312,33 +1312,49 @@ dialog::backdrop {
 }
 
 .metric-card-compact {
-  padding: 10px 12px;
+  padding: 8px 10px;
   min-height: 0;
-  border-radius: 18px;
+  border-radius: 16px;
 }
 
 .metric-card-compact strong {
-  margin-top: 4px;
-  font-size: 1.15rem;
+  margin-top: 2px;
+  font-size: 0.98rem;
   line-height: 1;
 }
 
 .metric-grid-summary {
   margin-top: 0;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .metric-grid-summary .eyebrow {
-  margin-bottom: 2px;
-  font-size: 0.62rem;
-  letter-spacing: 0.08em;
+  margin-bottom: 1px;
+  font-size: 0.56rem;
+  letter-spacing: 0.06em;
 }
 
 .metric-grid-summary .metric-note {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: 0.62rem;
+  line-height: 1.1;
+}
+
+.hero-home {
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border-radius: 18px;
+}
+
+.hero-home .eyebrow {
+  margin-bottom: 2px;
+}
+
+.hero-home h2 {
+  margin: 0;
+  font-size: 1.3rem;
 }
 
 .shortcut-grid {
@@ -1515,8 +1531,8 @@ dialog::backdrop {
   display: none;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
-  margin: 0 0 14px;
-  padding: 8px;
+  margin: 0 0 12px;
+  padding: 6px;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid var(--line);
@@ -1529,7 +1545,8 @@ dialog::backdrop {
   background: transparent;
   color: var(--muted);
   border-radius: 14px;
-  padding: 10px 8px;
+  padding: 8px 6px;
+  font-size: 0.86rem;
 }
 
 .mobile-tab.active {
@@ -1744,14 +1761,14 @@ dialog::backdrop {
   }
 
   .metric-grid-summary .metric-card-compact {
-    padding: 8px 10px;
+    padding: 7px 8px;
   }
 
   .metric-grid-summary .metric-card-compact strong {
-    font-size: 1rem;
+    font-size: 0.92rem;
   }
 
   .metric-grid-summary .metric-note {
-    font-size: 0.68rem;
+    font-size: 0.58rem;
   }
 }

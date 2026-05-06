@@ -121,6 +121,8 @@
     inviteError: document.getElementById("inviteError"),
     syncStatusBadge: document.getElementById("syncStatusBadge"),
     sessionChipRow: document.getElementById("sessionChipRow"),
+    heroTitle: document.getElementById("heroTitle"),
+    mobileTabbarSecondary: document.querySelector(".mobile-tabbar-secondary"),
     mobileTabs: document.querySelectorAll(".mobile-tab")
   };
 
@@ -1173,6 +1175,9 @@
     if (elements.metricGrid) {
       elements.metricGrid.classList.toggle("hidden", currentScreen !== "overview");
     }
+    if (elements.mobileTabbarSecondary) {
+      elements.mobileTabbarSecondary.classList.toggle("hidden", currentScreen === "overview");
+    }
   }
 
   function renderAppShell() {
@@ -1180,15 +1185,21 @@
       return;
     }
     const mobileTabs = Array.from(elements.mobileTabs || []);
-    if (mobileTabs.length >= 4) {
-      mobileTabs[0].dataset.screen = "overview";
-      mobileTabs[0].textContent = "Home";
-      mobileTabs[1].dataset.screen = appState.session.role === "admin" ? "admin" : "field";
-      mobileTabs[1].textContent = "Jobs";
-      mobileTabs[2].dataset.screen = "history";
-      mobileTabs[2].textContent = "History";
-      mobileTabs[3].dataset.screen = "assignment";
-      mobileTabs[3].textContent = "Activity";
+    if (mobileTabs.length) {
+      const mobileTabConfig = [
+        { screen: "overview", label: "Home" },
+        { screen: "assignment", label: "Activity" },
+        { screen: appState.session.role === "admin" ? "admin" : "field", label: "Jobs" },
+        { screen: "history", label: "History" }
+      ];
+      mobileTabs.forEach((tab, index) => {
+        const config = mobileTabConfig[index % mobileTabConfig.length];
+        tab.dataset.screen = config.screen;
+        tab.textContent = config.label;
+      });
+    }
+    if (elements.heroTitle) {
+      elements.heroTitle.textContent = appState.session.role === "admin" ? "Welcome, Dispatcher" : "Welcome";
     }
     if (elements.sessionChipRow) {
       const roleLabel = appState.session.role === "admin" ? "DISPATCHER" : "TECHNICIAN";

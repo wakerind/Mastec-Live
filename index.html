@@ -100,15 +100,22 @@
           <div class="session-chip-row" id="sessionChipRow"></div>
         </section>
 
-        <nav class="mobile-tabbar" aria-label="App sections">
-          <button class="mobile-tab active" type="button" data-screen="overview">Home</button>
-          <button class="mobile-tab" type="button" data-screen="field">Jobs</button>
-          <button class="mobile-tab" type="button" data-screen="history">History</button>
-          <button class="mobile-tab admin-only" type="button" data-screen="assignment">Activity</button>
-        </nav>
-
         <section class="screen active" data-screen-panel="overview">
+          <header class="hero hero-home">
+            <div>
+              <p class="eyebrow">Shared operations</p>
+              <h2 id="heroTitle">Welcome</h2>
+            </div>
+          </header>
+
           <section class="metric-grid metric-grid-summary" id="metricGrid"></section>
+
+          <nav class="mobile-tabbar" aria-label="App sections">
+            <button class="mobile-tab active" type="button" data-screen="overview">Home</button>
+            <button class="mobile-tab admin-only" type="button" data-screen="assignment">Activity</button>
+            <button class="mobile-tab" type="button" data-screen="field">Jobs</button>
+            <button class="mobile-tab" type="button" data-screen="history">History</button>
+          </nav>
 
           <div class="dashboard-grid">
             <article class="panel dashboard-panel">
@@ -145,6 +152,13 @@
             </article>
           </div>
         </section>
+
+        <nav class="mobile-tabbar mobile-tabbar-secondary hidden" aria-label="App sections">
+          <button class="mobile-tab active" type="button" data-screen="overview">Home</button>
+          <button class="mobile-tab admin-only" type="button" data-screen="assignment">Activity</button>
+          <button class="mobile-tab" type="button" data-screen="field">Jobs</button>
+          <button class="mobile-tab" type="button" data-screen="history">History</button>
+        </nav>
 
         <section class="screen" data-screen-panel="admin">
           <article class="panel panel-lg full-width-panel">
