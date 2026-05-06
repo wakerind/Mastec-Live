@@ -1,14 +1,25 @@
 (function () {
   const authStorageKey = "fieldsight-auth-token";
+  const appStateCacheKey = "mastec-dispatch-app-state";
   const visibleLifecycleStages = ["Uploaded", "Assigned", "Scheduled", "In Progress", "Completed", "Closed"];
   const editableLifecycleStages = ["Uploaded", "Assigned", "Scheduled", "In Progress", "Completed", "Closed"];
   const maxAttachmentBatchBytes = 30 * 1024 * 1024;
   const dragMimeType = "application/x-fieldsight-job-id";
   const displayTimeZone = "America/New_York";
+  const syncDbName = "mastec-dispatch-sync";
+  const syncStoreName = "mutationQueue";
+  const syncState = {
+    pendingCount: 0,
+    syncing: false,
+    online: navigator.onLine,
+    lastSyncedAt: "",
+    lastError: ""
+  };
 
   let authToken = localStorage.getItem(authStorageKey) || "";
   let currentScreen = "overview";
   let intakeSort = { key: "scheduledStartAt", direction: "asc" };
+  let syncDbPromise = null;
   let appState = {
     session: null,
     jobs: [],
@@ -107,7 +118,11 @@
     demoAdminCreds: document.getElementById("demoAdminCreds"),
     demoFieldCreds: document.getElementById("demoFieldCreds"),
     loginError: document.getElementById("loginError"),
-    inviteError: document.getElementById("inviteError")
+    inviteError: document.getElementById("inviteError"),
+    syncStatusBadge: document.getElementById("syncStatusBadge"),
+    sessionChipRow: document.getElementById("sessionChipRow"),
+    heroTitle: document.getElementById("heroTitle"),
+    mobileTabs: document.querySelectorAll(".mobile-tab")
   };
 
   function emptyState(message) {
@@ -275,7 +290,7 @@
       return [];
     }
     return appState.session.role === "field"
-      ? ["overview", "assignment", "field"]
+      ? ["overview", "assignment", "field", "history"]
       : ["overview", "admin", "assignment", "field", "history", "accounts", "leadership"];
   }
 
@@ -814,6 +829,194 @@
     }
   }
 
+  function cacheAppStateSnapshot() {
+    if (!appState.session) {
+      return;
+    }
+    try {
+      localStorage.setItem(appStateCacheKey, JSON.stringify(appState));
+    } catch {}
+  }
+
+  function readCachedAppState() {
+    try {
+      const raw = localStorage.getItem(appStateCacheKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function shouldQueueMutation(error) {
+    const message = String(error && error.message ? error.message : error || "");
+    return !navigator.onLine || /Failed to fetch|NetworkError|Load failed|fetch/i.test(message);
+  }
+
+  function openSyncDb() {
+    if (!("indexedDB" in window)) {
+      return Promise.resolve(null);
+    }
+    if (!syncDbPromise) {
+      syncDbPromise = new Promise((resolve, reject) => {
+        const request = indexedDB.open(syncDbName, 1);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(syncStoreName)) {
+            const store = db.createObjectStore(syncStoreName, { keyPath: "id" });
+            store.createIndex("createdAt", "createdAt");
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+    return syncDbPromise;
+  }
+
+  async function withSyncStore(mode, work) {
+    const db = await openSyncDb();
+    if (!db) {
+      return null;
+    }
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(syncStoreName, mode);
+      const store = tx.objectStore(syncStoreName);
+      const result = work(store, resolve, reject);
+      tx.oncomplete = () => {
+        if (typeof result !== "undefined") {
+          resolve(result);
+        }
+      };
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function listQueuedMutations() {
+    return (await withSyncStore("readonly", (store, resolve) => {
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result || []);
+    })) || [];
+  }
+
+  async function queueMutation(entry) {
+    const queuedEntry = {
+      id: entry.id || (crypto.randomUUID ? crypto.randomUUID() : `sync-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+      createdAt: entry.createdAt || new Date().toISOString(),
+      ...entry
+    };
+    await withSyncStore("readwrite", (store, resolve) => {
+      store.put(queuedEntry).onsuccess = () => resolve(queuedEntry);
+    });
+    await updateSyncState();
+    return queuedEntry;
+  }
+
+  async function removeQueuedMutation(id) {
+    await withSyncStore("readwrite", (store, resolve) => {
+      store.delete(id).onsuccess = () => resolve(true);
+    });
+  }
+
+  async function updateSyncState(nextState = {}) {
+    const queued = await listQueuedMutations();
+    syncState.pendingCount = queued.length;
+    Object.assign(syncState, nextState, { online: navigator.onLine });
+    renderSyncBadge();
+    return queued;
+  }
+
+  function renderSyncBadge() {
+    if (!elements.syncStatusBadge) {
+      return;
+    }
+    const badge = elements.syncStatusBadge;
+    const queuedLabel = syncState.pendingCount ? `Syncing ${syncState.pendingCount}` : "Synced";
+    let tone = "sync-live";
+    let label = queuedLabel;
+    if (!syncState.online) {
+      tone = "sync-offline";
+      label = syncState.pendingCount ? `Offline ${syncState.pendingCount}` : "Offline";
+    } else if (syncState.syncing) {
+      tone = "sync-pending";
+      label = queuedLabel;
+    } else if (syncState.lastError) {
+      tone = "sync-offline";
+      label = syncState.pendingCount ? `Retry ${syncState.pendingCount}` : "Retry needed";
+    }
+    badge.className = `sync-pill ${tone}`;
+    badge.textContent = label;
+    badge.title = syncState.lastError
+      ? syncState.lastError
+      : syncState.lastSyncedAt
+        ? `Last synced ${formatDateTime(syncState.lastSyncedAt)}`
+        : "Changes are saved and synced here.";
+  }
+
+  async function flushQueuedMutations() {
+    if (syncState.syncing || !navigator.onLine || !authToken) {
+      return;
+    }
+    const queued = await listQueuedMutations();
+    if (!queued.length) {
+      await updateSyncState({ syncing: false, lastError: "" });
+      return;
+    }
+    syncState.syncing = true;
+    syncState.lastError = "";
+    renderSyncBadge();
+    for (const entry of queued.sort((left, right) => new Date(left.createdAt) - new Date(right.createdAt))) {
+      try {
+        await api(entry.path, {
+          method: entry.method,
+          body: JSON.stringify(entry.body)
+        });
+        await removeQueuedMutation(entry.id);
+      } catch (error) {
+        syncState.syncing = false;
+        syncState.lastError = error.message;
+        await updateSyncState();
+        throw error;
+      }
+    }
+    syncState.syncing = false;
+    syncState.lastSyncedAt = new Date().toISOString();
+    syncState.lastError = "";
+    await updateSyncState();
+    await refreshApp();
+  }
+
+  async function sendQueuedMutation({ path, method, body, queueLabel }) {
+    if (!navigator.onLine) {
+      await queueMutation({ path, method, body, queueLabel });
+      return { queued: true };
+    }
+    try {
+      const payload = await api(path, {
+        method,
+        body: JSON.stringify(body)
+      });
+      syncState.lastSyncedAt = new Date().toISOString();
+      syncState.lastError = "";
+      await updateSyncState();
+      return payload;
+    } catch (error) {
+      if (shouldQueueMutation(error)) {
+        await queueMutation({ path, method, body, queueLabel });
+        return { queued: true };
+      }
+      throw error;
+    }
+  }
+
+  async function registerAppShell() {
+    if ("serviceWorker" in navigator) {
+      try {
+        await navigator.serviceWorker.register("./sw.js");
+      } catch {}
+    }
+    await updateSyncState();
+  }
+
   async function api(path, options) {
     const headers = {
       "Content-Type": "application/json",
@@ -941,7 +1144,11 @@
     if (!loggedIn) {
       elements.sessionRoleLabel.textContent = "Guest mode";
       elements.sessionUserLabel.textContent = "Sign in or redeem an invite to continue.";
+      if (elements.sessionChipRow) {
+        elements.sessionChipRow.innerHTML = "";
+      }
       currentScreen = "overview";
+      renderSyncBadge();
       return;
     }
 
@@ -958,9 +1165,46 @@
     elements.navLinks.forEach((link) => {
       link.classList.toggle("active", link.dataset.screen === currentScreen);
     });
+    elements.mobileTabs.forEach((tab) => {
+      tab.classList.toggle("active", tab.dataset.screen === currentScreen);
+    });
     elements.screens.forEach((screen) => {
       screen.classList.toggle("active", screen.dataset.screenPanel === currentScreen);
     });
+  }
+
+  function renderAppShell() {
+    if (!appState.session) {
+      return;
+    }
+    const mobileTabs = Array.from(elements.mobileTabs || []);
+    if (mobileTabs.length >= 4) {
+      mobileTabs[0].dataset.screen = "overview";
+      mobileTabs[0].textContent = "Home";
+      mobileTabs[1].dataset.screen = appState.session.role === "admin" ? "admin" : "field";
+      mobileTabs[1].textContent = "Jobs";
+      mobileTabs[2].dataset.screen = "history";
+      mobileTabs[2].textContent = "History";
+      mobileTabs[3].dataset.screen = "assignment";
+      mobileTabs[3].textContent = "Activity";
+    }
+    if (elements.heroTitle) {
+      elements.heroTitle.textContent = appState.session.role === "admin" ? "Welcome, Dispatcher" : "My jobs";
+    }
+    if (elements.sessionChipRow) {
+      const roleLabel = appState.session.role === "admin" ? "DISPATCHER" : "TECHNICIAN";
+      elements.sessionChipRow.innerHTML = `
+        <span class="session-chip session-chip-muted">Signed in as</span>
+        <span class="session-chip session-chip-strong">${escapeHtml(appState.session.name)}</span>
+        <span class="session-chip">${escapeHtml(roleLabel)}</span>
+        <button class="session-chip session-chip-link" type="button" id="sessionSignOutClone">Sign out</button>
+      `;
+      const signOutClone = document.getElementById("sessionSignOutClone");
+      if (signOutClone) {
+        signOutClone.addEventListener("click", () => elements.signOutButton.click(), { once: true });
+      }
+    }
+    renderSyncBadge();
   }
 
   function renderMetrics() {
@@ -971,13 +1215,20 @@
     const completedQueue = jobs.filter((job) => getLifecycleStage(job) === "Completed").length;
     const dueRisk = jobs.filter((job) => !["Completed", "Closed"].includes(getLifecycleStage(job)) && job.dueAt && new Date(job.dueAt).getTime() < Date.now()).length;
 
-    elements.metricGrid.innerHTML = [
-      { label: "Open jobs", value: openJobs, note: "Live jobs still moving through dispatch or field work" },
-      { label: "In progress", value: inProgress, note: "Jobs crews are actively working right now" },
-      { label: "Blockers", value: blockers, note: "Jobs that need attention before they can move forward" },
-      { label: "Review queue", value: appState.session?.role === "admin" ? completedQueue : dueRisk, note: appState.session?.role === "admin" ? "Completed jobs waiting on admin closeout" : "Jobs already past due and at risk" }
-    ].map((metric) => `
-      <article class="metric-card">
+    const cards = appState.session?.role === "admin"
+      ? [
+          { label: "Open jobs", value: openJobs, note: "Live jobs in circulation" },
+          { label: "In progress", value: inProgress, note: "Crews actively working now" },
+          { label: "Review queue", value: completedQueue, note: "Close-outs waiting on dispatch review" }
+        ]
+      : [
+          { label: "My live jobs", value: openJobs, note: "Assigned work on your board" },
+          { label: "In progress", value: inProgress, note: "Jobs you can close out next" },
+          { label: "At risk", value: dueRisk + blockers, note: "Overdue or blocked jobs needing attention" }
+        ];
+
+    elements.metricGrid.innerHTML = cards.map((metric) => `
+      <article class="metric-card metric-card-compact">
         <p class="eyebrow">${metric.label}</p>
         <strong>${metric.value}</strong>
         <p class="metric-note">${metric.note}</p>
@@ -1058,21 +1309,20 @@
 
   function renderDashboardShortcuts() {
     const activeJobs = appState.jobs.filter((job) => !["Completed", "Closed"].includes(getLifecycleStage(job))).length;
-    const readyToDispatch = appState.jobs.filter((job) => canFieldDispatch(job)).length;
-    const readyToStart = appState.jobs.filter((job) => canFieldStart(job)).length;
     const readyToClose = appState.jobs.filter((job) => getLifecycleStage(job) === "Completed").length;
     const shortcuts = appState.session?.role === "field"
       ? [
-          { label: "My jobs", note: `${activeJobs} live jobs in your queue`, screen: "field" },
-          { label: "Ready to start", note: `${readyToStart} jobs can move into progress`, screen: "field" }
+          { label: "My Jobs", note: `${activeJobs} active`, screen: "field", tone: "blue" },
+          { label: "History", note: "Completed work", screen: "history", tone: "purple" }
         ]
       : [
-          { label: "Master jobs", note: `${activeJobs} active jobs in circulation`, screen: "admin" },
-          { label: "Dispatch board", note: `${readyToDispatch} jobs waiting on dispatch`, screen: "assignment" },
-          { label: "Closeout queue", note: `${readyToClose} jobs waiting on final review`, screen: "history" }
+          { label: "Dispatch Job", note: "Send a job to crew", screen: "admin", tone: "blue" },
+          { label: "Active Jobs", note: `${activeJobs} in progress`, screen: "assignment", tone: "green" },
+          { label: "Close Out", note: `${readyToClose} awaiting review`, screen: "history", tone: "amber" },
+          { label: "Job History", note: "Completed jobs", screen: "history", tone: "purple" }
         ];
     elements.dashboardShortcuts.innerHTML = shortcuts.map((shortcut) => `
-      <button class="shortcut-card" type="button" data-nav-screen="${shortcut.screen}">
+      <button class="shortcut-card shortcut-${shortcut.tone || "blue"}" type="button" data-nav-screen="${shortcut.screen}">
         <strong>${shortcut.label}</strong>
         <span>${shortcut.note}</span>
       </button>
@@ -1095,6 +1345,44 @@
     return { label: "Open job", action: "open-job" };
   }
 
+  function getJobPriorityTone(job) {
+    const priority = String(job.priority || "").toLowerCase();
+    if (priority === "emergency" || priority === "high") {
+      return "priority-emergency";
+    }
+    if (priority === "urgent" || priority === "medium") {
+      return "priority-urgent";
+    }
+    return "priority-normal";
+  }
+
+  function getMobileLifecycleStage(job) {
+    const stage = getLifecycleStage(job);
+    if (stage === "Closed") {
+      return "Completed";
+    }
+    if (stage === "Completed") {
+      return "Close-Out";
+    }
+    return stage;
+  }
+
+  function renderJobStepper(job) {
+    const stages = ["Uploaded", "Assigned", "In Progress", "Close-Out", "Completed"];
+    const activeStage = getMobileLifecycleStage(job);
+    const activeIndex = Math.max(stages.indexOf(activeStage), 0);
+    return `
+      <div class="job-stepper">
+        ${stages.map((stage, index) => `
+          <div class="job-step ${index <= activeIndex ? "done" : ""} ${index === activeIndex ? "active" : ""}">
+            <span class="job-step-dot">${index + 1}</span>
+            <span class="job-step-label">${stage === "Uploaded" ? "Draft" : stage}</span>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
   function renderFieldCommandCenter() {
     if (!elements.fieldCommandGrid) {
       return;
@@ -1114,7 +1402,7 @@
         }
         return new Date(left.scheduledStartAt || 0) - new Date(right.scheduledStartAt || 0);
       })[0];
-    const syncTone = navigator.onLine ? "sync-live" : "sync-offline";
+    const syncTone = !syncState.online ? "sync-offline" : syncState.pendingCount ? "sync-pending" : "sync-live";
     const primaryAction = topJob ? getPrimaryFieldAction(topJob) : null;
 
     elements.fieldCommandGrid.innerHTML = `
@@ -1124,40 +1412,41 @@
             <p class="eyebrow">Crew command</p>
             <h4>${topJob ? topJob.title : "No active field job"}</h4>
           </div>
-          <span class="sync-pill ${syncTone}">${navigator.onLine ? "Live sync" : "Offline now"}</span>
+          <span class="sync-pill ${syncTone}">${!syncState.online ? "Offline" : syncState.pendingCount ? `Syncing ${syncState.pendingCount}` : "Synced"}</span>
         </div>
         <p class="muted">${topJob ? (topJob.jobAddress || topJob.market) : "You are clear for now. New assignments will appear here."}</p>
+        ${topJob ? renderJobStepper(topJob) : ""}
         <div class="job-tags">
+          ${topJob ? `<span class="pill ${getJobPriorityTone(topJob)}">${topJob.priority || "Normal"}</span>` : ""}
           ${topJob ? `<span class="pill">${getOperationalStatus(topJob)}</span>` : ""}
-          ${topJob ? `<span class="pill">Scheduled ${formatDateTime(topJob.scheduledStartAt)}</span>` : ""}
           ${topJob && topJob.blockerReason ? `<span class="pill">${topJob.blockerReason}</span>` : ""}
         </div>
         <p class="field-focus-note">${topJob ? (topJob.jobDescription || topJob.issue) : "Stay signed in on your phone to pick up the next job quickly."}</p>
         <div class="job-actions">
           ${topJob && primaryAction ? `<button class="action-btn" data-action="${primaryAction.action}" data-id="${topJob.id}">${primaryAction.label}</button>` : ""}
-          ${topJob ? `<button class="action-btn" data-action="log-update" data-id="${topJob.id}">Add update</button>` : ""}
+          ${topJob ? `<button class="action-btn" data-action="log-update" data-id="${topJob.id}">Add note</button>` : ""}
           ${topJob && getMapsUrl(topJob) ? `<a class="action-btn action-link" href="${getMapsUrl(topJob)}" target="_blank" rel="noreferrer">Open in Maps</a>` : ""}
         </div>
       </article>
       <article class="field-metric-card">
-        <p class="eyebrow">Assigned now</p>
+        <p class="eyebrow">Assigned</p>
         <strong>${assigned}</strong>
-        <span class="muted">Jobs waiting on acknowledgement</span>
+        <span class="muted">Waiting on acknowledgement</span>
       </article>
       <article class="field-metric-card">
         <p class="eyebrow">Ready to start</p>
         <strong>${readyToStart}</strong>
-        <span class="muted">Scheduled work that can move into progress</span>
+        <span class="muted">Next jobs on deck</span>
       </article>
       <article class="field-metric-card">
         <p class="eyebrow">In progress</p>
         <strong>${inProgress}</strong>
-        <span class="muted">Active jobs your crew is working right now</span>
+        <span class="muted">Jobs being worked right now</span>
       </article>
       <article class="field-metric-card">
         <p class="eyebrow">Blockers</p>
         <strong>${blockers}</strong>
-        <span class="muted">Jobs that need attention before closeout</span>
+        <span class="muted">Issues to clear before close-out</span>
       </article>
     `;
   }
@@ -1367,36 +1656,24 @@
       const needsUpdateBeforeComplete = isAccepted(job) && getOperationalStatus(job) === "In Progress" && getJobUpdates(job.id).length === 0;
       const primaryAction = getPrimaryFieldAction(job);
       return `
-      <article class="job-card">
+      <article class="job-card field-job-card">
         <div class="job-card-header">
           <div>
-            <p class="eyebrow">${job.market}</p>
+            <p class="eyebrow">#JOB-${escapeHtml(String(job.id).padStart(6, "0"))}</p>
             <h4>${job.title}</h4>
           </div>
           <span class="status ${getStatusClass(getOperationalStatus(job))}">${getOperationalStatus(job)}</span>
         </div>
+        <p class="muted field-job-address">${job.jobAddress || job.market}</p>
         <div class="job-tags">
-          <span class="pill">${job.jobType}</span>
-          <span class="pill">${job.jobAddress || job.market}</span>
-          <span class="pill">Schedule ${formatDateTime(job.scheduledStartAt)}</span>
-          <span class="pill">Due ${formatDateTime(job.dueAt || job.scheduledStartAt)}</span>
+          <span class="pill ${getJobPriorityTone(job)}">${job.priority || "Normal"}</span>
+          <span class="pill">${getMobileLifecycleStage(job)}</span>
         </div>
-        <div class="job-progress">
-          <div class="progress-bar"><span style="width:${job.completion}%"></span></div>
-          <p class="muted">${job.completion}% complete</p>
-          <p class="muted">${job.blockerReason || job.issue || "Tap open job for full details and history."}</p>
-          <p class="muted">Dispatcher: ${job.dispatcherName || "Not listed"}${job.dispatcherPhone ? ` | ${formatPhone(job.dispatcherPhone)}` : ""}</p>
-        </div>
+        ${renderJobStepper(job)}
         <div class="job-actions">
           <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
           ${primaryAction.action !== "open-job" ? `<button class="action-btn" data-action="${primaryAction.action}" data-id="${job.id}">${primaryAction.label}</button>` : ""}
-          ${getMapsUrl(job) ? `<a class="action-btn action-link" href="${getMapsUrl(job)}" target="_blank" rel="noreferrer">Open in Maps</a>` : ""}
-          ${job.dispatcherPhone ? `<a class="action-btn action-link" href="tel:${job.dispatcherPhone}">Call dispatcher</a>` : ""}
           ${canFieldReject(job) ? `<button class="action-btn" data-action="reject-job" data-id="${job.id}">Reject job</button>` : ""}
-          <button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>
-          ${job.blockerReason
-            ? `<button class="action-btn" data-action="clear-blocker" data-id="${job.id}">Clear blocker</button>`
-            : `<button class="action-btn" data-action="add-blocker" data-id="${job.id}">Report blocker</button>`}
         </div>
         ${needsUpdateBeforeComplete ? `<p class="completion-hint">Add at least one update before completing this job.</p>` : ""}
       </article>
@@ -1413,26 +1690,24 @@
       })
       .sort((left, right) => new Date(getClosedAt(right) || 0) - new Date(getClosedAt(left) || 0));
 
-    elements.historyList.innerHTML = items.length ? items.map((job) => `
-      <article class="job-card compact-card">
-        <div class="job-card-header">
-          <div>
-            <p class="eyebrow">${job.jobType}</p>
-            <h4>${job.title}</h4>
-          </div>
-          <span class="status closed">Closed</span>
+    elements.historyList.innerHTML = items.length ? `
+      <div class="history-table">
+        <div class="history-row history-row-head">
+          <span>Job</span>
+          <span>Status</span>
+          <span>Priority</span>
+          <span>Updated</span>
         </div>
-        <div class="job-tags">
-          <span class="pill">${job.jobAddress || job.market}</span>
-          <span class="pill">Closed ${formatDateTime(getClosedAt(job) || job.adminReviewedAt)}</span>
-          <span class="pill">${job.dispatcherName || "Dispatcher not listed"}</span>
-        </div>
-        <p class="muted">Open the job to see full closeout details, update history, photos, and codes used.</p>
-        <div class="job-actions">
-          <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
-        </div>
-      </article>
-    `).join("") : emptyState("No closed jobs match the current filters.");
+        ${items.map((job) => `
+          <button class="history-row history-row-item" type="button" data-action="open-job" data-id="${job.id}">
+            <span><strong>${job.title}</strong><small>#JOB-${job.id}</small></span>
+            <span class="status closed">Completed</span>
+            <span class="pill ${getJobPriorityTone(job)}">${job.priority || "Normal"}</span>
+            <span>${formatDateTime(getClosedAt(job) || job.adminReviewedAt)}</span>
+          </button>
+        `).join("")}
+      </div>
+    ` : emptyState("No closed jobs match the current filters.");
   }
 
   function renderCrews() {
@@ -1730,10 +2005,22 @@
 
     try {
       appState = await api("/api/app-state");
+      cacheAppStateSnapshot();
       showLoginState();
       renderApp();
       await loadAdminData();
+      await updateSyncState();
     } catch (error) {
+      if (shouldQueueMutation(error)) {
+        const cachedState = readCachedAppState();
+        if (cachedState && cachedState.session) {
+          appState = cachedState;
+          showLoginState();
+          renderApp();
+          await updateSyncState({ lastError: "Working from the last saved snapshot until the connection comes back." });
+          return;
+        }
+      }
       setToken("");
       appState.session = null;
       showLoginState();
@@ -1742,6 +2029,7 @@
 
   function renderApp() {
     const filters = getFilters();
+    renderAppShell();
     renderMetrics();
     renderDashboardShortcuts();
     renderHistoryPreview();
@@ -1788,14 +2076,20 @@
     if (!job) {
       throw new Error("Job not found in the current session.");
     }
-    await api(`/api/jobs/${jobId}`, {
+    const result = await sendQueuedMutation({
+      path: `/api/jobs/${jobId}`,
       method: "PATCH",
-      body: JSON.stringify({
+      body: {
         ...payload,
         expectedJobVersion: Number(job.jobVersion || 0),
         deviceTime: new Date().toISOString()
-      })
+      },
+      queueLabel: `Job ${job.title}`
     });
+    if (result && result.queued) {
+      window.alert("You are offline. This change was saved on the device and will sync when the connection returns.");
+      return;
+    }
     await refreshApp();
   }
 
@@ -1804,15 +2098,21 @@
     if (!job) {
       throw new Error("Job not found in the current session.");
     }
-    await api(`/api/jobs/${jobId}/actions`, {
+    const result = await sendQueuedMutation({
+      path: `/api/jobs/${jobId}/actions`,
       method: "POST",
-      body: JSON.stringify({
+      body: {
         action,
         payload,
         expectedJobVersion: Number(job.jobVersion || 0),
         deviceTime: new Date().toISOString()
-      })
+      },
+      queueLabel: `${action}:${job.title}`
     });
+    if (result && result.queued) {
+      window.alert("You are offline. This job action was queued and will sync automatically.");
+      return;
+    }
     await refreshApp();
   }
 
@@ -2017,18 +2317,33 @@
     const isAdmin = appState.session?.role === "admin";
     elements.jobDetailForm.elements.jobId.value = String(job.id);
     elements.jobDetailSummary.innerHTML = `
-      <article class="info-card">
-        <strong>${job.title}</strong><br>
-        <span class="muted">${job.market} | ${job.jobType}</span><br>
-        <span class="muted">Address: ${job.jobAddress || job.market}</span><br>
-        <span class="muted">Assigned team: ${job.assignedTo || "Not assigned yet"}</span><br>
-        <span class="muted">Dispatcher: ${job.dispatcherName || "Not listed"} | ${formatPhone(job.dispatcherPhone)}</span><br>
-        <span class="muted">Schedule date: ${formatDateTime(job.scheduledStartAt)}</span><br>
-        <span class="muted">Due date: ${formatDateTime(job.dueAt || job.scheduledStartAt)}</span><br>
-        <span class="muted">Description: ${job.jobDescription || "No description added yet."}</span><br>
-        <span class="muted">Status note: ${job.blockerReason || job.issue || "No notes added yet."}</span><br>
-        <span class="muted">Completion: ${job.completion}% | Planned ${Number(job.plannedHours || 0)}h | Actual ${Number(job.actualHours || 0)}h</span><br>
-        <span class="muted">Assigned at: ${formatDateTime(job.assignmentAt || job.createdAt)} | Dispatch: ${job.dispatchedAt ? formatDateTime(job.dispatchedAt) : "Pending"}</span>
+      <article class="info-card detail-hero-card">
+        <div class="job-card-header">
+          <div>
+            <p class="eyebrow">Job #JOB-${job.id}</p>
+            <strong>${job.title}</strong>
+          </div>
+          <span class="pill ${getJobPriorityTone(job)}">${job.priority || "Normal"}</span>
+        </div>
+        <div class="job-tags">
+          <span class="status ${getStatusClass(getOperationalStatus(job))}">${getOperationalStatus(job)}</span>
+          <span class="pill">${job.assignedTo || "Unassigned"}</span>
+        </div>
+        ${renderJobStepper(job)}
+      </article>
+      <article class="info-card detail-summary-card">
+        <strong>Address</strong>
+        <p class="muted">${job.jobAddress || job.market}</p>
+      </article>
+      <article class="info-card detail-summary-card">
+        <strong>Description</strong>
+        <p class="muted">${job.jobDescription || "No description added yet."}</p>
+      </article>
+      <article class="info-card detail-summary-card">
+        <strong>Dispatch</strong>
+        <p class="muted">Dispatcher: ${job.dispatcherName || "Not listed"}${job.dispatcherPhone ? ` | ${formatPhone(job.dispatcherPhone)}` : ""}</p>
+        <p class="muted">Scheduled: ${formatDateTime(job.scheduledStartAt)}</p>
+        <p class="muted">Due: ${formatDateTime(job.dueAt || job.scheduledStartAt)}</p>
       </article>
     `;
     elements.jobDetailQuickLinks.innerHTML = `
@@ -2055,11 +2370,11 @@
     elements.jobDetailForm.elements.adminReviewed.disabled = !isAdmin;
     elements.jobDetailUpdates.innerHTML = `
       <div class="detail-stack">
-        <p class="eyebrow">Cycle history</p>
+        <p class="eyebrow">Audit log</p>
         ${renderStageHistoryPreview(job.id)}
       </div>
       <div class="detail-stack">
-        <p class="eyebrow">Updates</p>
+        <p class="eyebrow">Photos and notes</p>
         ${renderUpdatesPreview(job.id)}
       </div>
     `;
@@ -2321,6 +2636,9 @@
     elements.navLinks.forEach((link) => {
       link.addEventListener("click", () => setScreen(link.dataset.screen));
     });
+    elements.mobileTabs.forEach((tab) => {
+      tab.addEventListener("click", () => setScreen(tab.dataset.screen));
+    });
 
     [
       elements.intakeStatusFilter,
@@ -2355,6 +2673,13 @@
     });
     elements.exportCsvButton.addEventListener("click", downloadCycleExport);
     elements.refreshDataButton.addEventListener("click", refreshApp);
+    if (elements.syncStatusBadge) {
+      elements.syncStatusBadge.addEventListener("click", () => {
+        flushQueuedMutations().catch((error) => {
+          window.alert(error.message);
+        });
+      });
+    }
     elements.closeJobDialog.addEventListener("click", () => elements.jobDialog.close());
     elements.cancelJobDialog.addEventListener("click", () => elements.jobDialog.close());
     elements.closeAssignDialog.addEventListener("click", () => elements.assignDialog.close());
@@ -2543,18 +2868,24 @@
       const form = new FormData(elements.updateForm);
       const jobId = Number(form.get("jobId"));
       const attachments = await filesToPayload(elements.updateForm.elements.attachment.files);
-      await api(`/api/jobs/${jobId}/updates`, {
+      const result = await sendQueuedMutation({
+        path: `/api/jobs/${jobId}/updates`,
         method: "POST",
-        body: JSON.stringify({
+        body: {
           updateType: form.get("updateType"),
           workDone: form.get("workDone"),
           codesUsed: Array.from(elements.updateForm.elements.codesUsed.selectedOptions).map((option) => option.value),
           note: form.get("note"),
           attachments,
           deviceTime: new Date().toISOString()
-        })
+        },
+        queueLabel: `update:${jobId}`
       });
       elements.updateDialog.close();
+      if (result && result.queued) {
+        window.alert("Your note and photos were saved on this device and will upload automatically when service returns.");
+        return;
+      }
       await refreshApp();
     });
 
@@ -2684,9 +3015,19 @@
         window.alert(error.message);
       });
     });
+
+    window.addEventListener("online", () => {
+      syncState.online = true;
+      updateSyncState().then(() => flushQueuedMutations().catch(() => {})).catch(() => {});
+    });
+    window.addEventListener("offline", () => {
+      syncState.online = false;
+      updateSyncState().catch(() => {});
+    });
   }
 
   registerEvents();
+  registerAppShell().catch(() => {});
   showLoginState();
   refreshApp().catch(console.error);
 })();

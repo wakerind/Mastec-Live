@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#17342e">
-  <meta name="description" content="FieldSight shared operations portal for admins and field users.">
-  <title>FieldSight | Shared Operations Portal</title>
+  <meta name="theme-color" content="#2d66e0">
+  <meta name="description" content="MasTec Dispatch mobile-first workflow for dispatchers and field technicians.">
+  <title>MasTec Dispatch</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -13,19 +13,19 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">F</div>
+        <div class="brand-mark">M</div>
         <div>
-          <p class="eyebrow">Operations portal</p>
-          <h1>FieldSight</h1>
+          <p class="eyebrow">Dispatch app</p>
+          <h1>MasTec Dispatch</h1>
         </div>
       </div>
 
       <nav class="nav" aria-label="Primary">
-        <button class="nav-link active" data-screen="overview">Home Dashboard</button>
+        <button class="nav-link active" data-screen="overview">Home</button>
         <button class="nav-link admin-only" data-screen="admin">Master Grid</button>
-        <button class="nav-link" data-screen="assignment">Assignment</button>
+        <button class="nav-link" data-screen="assignment">Activity</button>
         <button class="nav-link field-only" data-screen="field">My Jobs</button>
-        <button class="nav-link admin-only" data-screen="history">History</button>
+        <button class="nav-link" data-screen="history">History</button>
         <button class="nav-link admin-only" data-screen="accounts">Accounts</button>
         <button class="nav-link admin-only" data-screen="leadership">KPIs</button>
       </nav>
@@ -89,10 +89,21 @@
       </section>
 
       <div id="appContent" class="hidden">
+        <header class="app-bar">
+          <div class="app-bar-brand">
+            <h2>MasTec Dispatch</h2>
+          </div>
+          <button class="sync-pill sync-live" id="syncStatusBadge" type="button">Synced</button>
+        </header>
+
+        <section class="session-strip">
+          <div class="session-chip-row" id="sessionChipRow"></div>
+        </section>
+
         <header class="hero">
           <div>
-            <p class="eyebrow">MasTec workflow visibility</p>
-            <h2>MasTec workflow visibility</h2>
+            <p class="eyebrow">Shared operations</p>
+            <h2 id="heroTitle">Welcome</h2>
           </div>
           <div class="hero-actions">
             <button class="primary-btn admin-only" id="openJobDialog">Add job</button>
@@ -111,7 +122,7 @@
               <div class="panel-header">
                 <div>
                   <p class="eyebrow">Home dashboard</p>
-                  <h3>Dispatcher shortcuts</h3>
+                  <h3>Dispatch board</h3>
                 </div>
               </div>
               <div class="shortcut-grid" id="dashboardShortcuts"></div>
@@ -191,9 +202,9 @@
           <article class="panel panel-lg full-width-panel">
             <div class="panel-header stacked-mobile">
               <div>
-                <p class="eyebrow">Field mobile view</p>
-                <h3>My assigned jobs</h3>
-              </div>
+                  <p class="eyebrow">Field mobile view</p>
+                  <h3>My assigned jobs</h3>
+                </div>
               <div class="filters">
                 <select id="fieldStatusFilter">
                   <option value="all">All live statuses</option>
@@ -202,6 +213,7 @@
                   <option value="Scheduled">Scheduled</option>
                   <option value="Not Started">Not Started</option>
                   <option value="In Progress">In Progress</option>
+                  <option value="Close-Out">Close-Out</option>
                   <option value="Completed">Completed</option>
                   <option value="Closed">Closed</option>
                 </select>
@@ -217,8 +229,8 @@
           <article class="panel panel-lg full-width-panel">
             <div class="panel-header stacked-mobile">
               <div>
-                <p class="eyebrow">Closed jobs</p>
-                <h3>History and closeout archive</h3>
+                <p class="eyebrow">Completed and archived jobs</p>
+                <h3>Job history</h3>
               </div>
               <div class="filters">
                 <select id="historyTypeFilter">
@@ -292,6 +304,13 @@
           </article>
         </section>
       </div>
+
+      <nav class="mobile-tabbar" aria-label="Mobile app tabs">
+        <button class="mobile-tab active" type="button" data-screen="overview">Home</button>
+        <button class="mobile-tab" type="button" data-screen="field">Jobs</button>
+        <button class="mobile-tab" type="button" data-screen="history">History</button>
+        <button class="mobile-tab admin-only" type="button" data-screen="assignment">Activity</button>
+      </nav>
     </main>
   </div>
 

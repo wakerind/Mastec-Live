@@ -1248,6 +1248,274 @@ dialog::backdrop {
   display: none !important;
 }
 
+.app-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+  padding: 14px 18px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, #2d66e0, #2f6db1);
+  color: #ffffff;
+  box-shadow: 0 18px 40px rgba(45, 102, 224, 0.2);
+}
+
+.app-bar-brand h2 {
+  margin: 0;
+  font-size: 1.45rem;
+  font-family: "Bahnschrift", "Arial Narrow", sans-serif;
+}
+
+.session-strip {
+  margin-bottom: 18px;
+}
+
+.session-chip-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.session-chip {
+  border: 1px solid var(--line);
+  background: #ffffff;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 8px 14px;
+}
+
+.session-chip-strong {
+  background: rgba(45, 102, 224, 0.12);
+  color: #2d66e0;
+  font-weight: 700;
+}
+
+.session-chip-muted {
+  background: transparent;
+  border-color: transparent;
+  padding-left: 0;
+}
+
+.session-chip-link {
+  cursor: pointer;
+}
+
+.hero {
+  align-items: center;
+  padding: 22px 24px;
+}
+
+.hero h2 {
+  font-size: clamp(1.8rem, 2.8vw, 2.4rem);
+}
+
+.metric-card-compact {
+  padding: 18px 20px;
+}
+
+.metric-card-compact strong {
+  margin-top: 10px;
+  font-size: 1.9rem;
+}
+
+.shortcut-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.shortcut-card {
+  min-height: 158px;
+  align-content: end;
+  color: #ffffff;
+  border: 0;
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
+}
+
+.shortcut-card strong,
+.shortcut-card span {
+  color: inherit;
+}
+
+.shortcut-blue {
+  background: linear-gradient(135deg, #2d66e0, #3f7cf1);
+}
+
+.shortcut-green {
+  background: linear-gradient(135deg, #14a44d, #18b25b);
+}
+
+.shortcut-amber {
+  background: linear-gradient(135deg, #f59e0b, #f9a825);
+}
+
+.shortcut-purple {
+  background: linear-gradient(135deg, #7c3aed, #9146ff);
+}
+
+.sync-pill.sync-pending {
+  background: rgba(45, 102, 224, 0.14);
+  color: #2d66e0;
+}
+
+.priority-emergency {
+  background: rgba(220, 38, 38, 0.16);
+  color: #dc2626;
+}
+
+.priority-urgent {
+  background: rgba(245, 158, 11, 0.16);
+  color: #b7791f;
+}
+
+.priority-normal {
+  background: rgba(21, 128, 61, 0.14);
+  color: var(--success);
+}
+
+.field-job-card {
+  gap: 12px;
+}
+
+.field-job-address {
+  margin: 0;
+}
+
+.job-stepper {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.job-step {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.job-step::after {
+  content: "";
+  position: absolute;
+  top: 13px;
+  left: calc(50% + 18px);
+  width: calc(100% - 28px);
+  height: 2px;
+  background: #d8dfeb;
+}
+
+.job-step:last-child::after {
+  display: none;
+}
+
+.job-step-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: #eef2f8;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  z-index: 1;
+}
+
+.job-step.done .job-step-dot,
+.job-step.active .job-step-dot {
+  background: #2d66e0;
+  color: #ffffff;
+}
+
+.job-step.done::after {
+  background: #2d66e0;
+}
+
+.job-step-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.history-table {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1.2fr;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+}
+
+.history-row-head {
+  background: #f7fafc;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.history-row-item {
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history-row-item small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.detail-hero-card,
+.detail-summary-card {
+  gap: 10px;
+}
+
+.detail-summary-card p {
+  margin: 0;
+}
+
+.mobile-tabbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: none;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 18px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  border-radius: 20px 20px 0 0;
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -12px 28px rgba(15, 23, 42, 0.08);
+}
+
+.mobile-tab {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 14px;
+  padding: 10px 8px;
+}
+
+.mobile-tab.active {
+  background: rgba(45, 102, 224, 0.12);
+  color: #2d66e0;
+  font-weight: 700;
+}
+
 @media (max-width: 1120px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -1289,9 +1557,12 @@ dialog::backdrop {
 }
 
 @media (max-width: 760px) {
-  .main-content,
   .sidebar {
-    padding: 18px;
+    display: none;
+  }
+
+  .main-content {
+    padding: 14px 14px 90px;
   }
 
   .hero,
@@ -1359,17 +1630,75 @@ dialog::backdrop {
     flex-direction: column;
   }
 
-  .nav {
+  .shortcut-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .history-row {
+    grid-template-columns: 1.5fr 1fr;
+  }
+
+  .history-row span:nth-child(3),
+  .history-row span:nth-child(4) {
+    display: none;
   }
 
   .kpi-filters {
     width: 100%;
     grid-template-columns: 1fr;
   }
+
+  .mobile-tabbar {
+    display: grid;
+  }
 }
 
 @media (max-width: 560px) {
+  .app-bar {
+    border-radius: 0 0 18px 18px;
+    margin: -14px -14px 12px;
+  }
+
+  .hero {
+    padding: 18px;
+  }
+
+  .hero-actions {
+    display: none;
+  }
+
+  .shortcut-grid,
+  .job-stepper {
+    grid-template-columns: 1fr;
+  }
+
+  .job-step {
+    grid-template-columns: 28px 1fr;
+    justify-items: start;
+    text-align: left;
+  }
+
+  .job-step::after {
+    display: none;
+  }
+
+  .job-step-label {
+    font-size: 0.8rem;
+    padding-top: 4px;
+  }
+
+  .history-row {
+    grid-template-columns: 1fr;
+  }
+
+  .history-row-head {
+    display: none;
+  }
+
+  .history-row-item {
+    gap: 8px;
+  }
+
   .stage-column {
     min-height: 270px;
   }
