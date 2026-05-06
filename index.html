@@ -359,10 +359,11 @@
   <dialog id="updateDialog">
     <form class="dialog-card" id="updateForm">
       <div class="dialog-header">
-        <h3>Add field update</h3>
+        <h3 id="updateDialogTitle">Add field update</h3>
         <button class="icon-btn" type="button" id="closeUpdateDialog" aria-label="Close">x</button>
       </div>
       <input type="hidden" name="jobId">
+      <input type="hidden" name="submitMode" value="update">
       <div class="dialog-grid">
         <label>Update type<input name="updateType" list="updateTypeOptions" required></label>
         <label>Work done<input name="workDone" list="workDoneOptions" placeholder="Search work done"></label>
@@ -370,17 +371,17 @@
           <input name="codesUsedSearch" id="codesUsedSearch" placeholder="Type to filter code options">
         </label>
         <label class="span-2">Codes used
-          <select name="codesUsed" multiple size="7">
-            <option value="SPL - Splice">SPL - Splice</option>
-            <option value="TST - Tested">TST - Tested</option>
-            <option value="RPR - Repair">RPR - Repair</option>
-            <option value="NEW - New Install">NEW - New Install</option>
-            <option value="TRC - Troubleshoot">TRC - Troubleshoot</option>
-            <option value="LOC - Locate">LOC - Locate</option>
-            <option value="MTR - Material Used">MTR - Material Used</option>
-            <option value="INS - Inspection">INS - Inspection</option>
-            <option value="OTH - Other">OTH - Other</option>
-          </select>
+          <div class="codes-checklist" id="codesChecklist">
+            <label class="code-option"><input type="checkbox" name="codesUsed" value="SPL - Splice"><span>SPL - Splice</span></label>
+            <label class="code-option"><input type="checkbox" name="codesUsed" value="TST - Tested"><span>TST - Tested</span></label>
+            <label class="code-option"><input type="checkbox" name="codesUsed" value="RPR - Repair"><span>RPR - Repair</span></label>
+            <label class="code-option"><input type="checkbox" name="codesUsed" value="NEW - New Install"><span>NEW - New Install</span></label>
+            <label class="code-option"><input type="checkbox" name="codesUsed" value="TRC - Troubleshoot"><span>TRC - Troubleshoot</span></label>
+            <label class="code-option"><input type="checkbox" name="codesUsed" value="LOC - Locate"><span>LOC - Locate</span></label>
+            <label class="code-option"><input type="checkbox" name="codesUsed" value="MTR - Material Used"><span>MTR - Material Used</span></label>
+            <label class="code-option"><input type="checkbox" name="codesUsed" value="INS - Inspection"><span>INS - Inspection</span></label>
+            <label class="code-option"><input type="checkbox" name="codesUsed" value="OTH - Other"><span>OTH - Other</span></label>
+          </div>
         </label>
         <label class="span-2">Update note
           <input name="note" placeholder="What changed on this job?" required>
@@ -391,7 +392,7 @@
       </div>
       <menu class="dialog-actions">
         <button class="secondary-btn" type="button" id="cancelUpdateDialog">Cancel</button>
-        <button class="primary-btn" type="submit">Save update</button>
+        <button class="primary-btn" type="submit" id="updateDialogSubmitButton">Save update</button>
       </menu>
     </form>
   </dialog>

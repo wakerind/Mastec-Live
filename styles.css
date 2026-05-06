@@ -1222,6 +1222,35 @@ button:hover {
   color: var(--muted);
 }
 
+.codes-checklist {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px 2px;
+}
+
+.code-option {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #ffffff;
+  color: var(--text) !important;
+}
+
+.code-option input {
+  width: auto !important;
+  margin: 0;
+}
+
+.code-option span {
+  color: var(--text);
+  font-size: 0.94rem;
+}
+
 .span-2 {
   grid-column: span 2;
 }
@@ -1706,6 +1735,15 @@ dialog::backdrop {
   .kpi-filters {
     width: 100%;
     grid-template-columns: 1fr;
+  }
+
+  .dialog-card {
+    width: min(94vw, 760px);
+    padding: 18px;
+  }
+
+  .codes-checklist {
+    max-height: 170px;
   }
 
 }

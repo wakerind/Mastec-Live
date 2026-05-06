@@ -95,6 +95,9 @@
     codesUsedSearch: document.getElementById("codesUsedSearch"),
     closeUpdateDialog: document.getElementById("closeUpdateDialog"),
     cancelUpdateDialog: document.getElementById("cancelUpdateDialog"),
+    updateDialogTitle: document.getElementById("updateDialogTitle"),
+    updateDialogSubmitButton: document.getElementById("updateDialogSubmitButton"),
+    codesChecklist: document.getElementById("codesChecklist"),
     rejectDialog: document.getElementById("rejectDialog"),
     rejectForm: document.getElementById("rejectForm"),
     closeRejectDialog: document.getElementById("closeRejectDialog"),
@@ -126,6 +129,10 @@
 
   function emptyState(message) {
     return `<div class="empty-state">${message}</div>`;
+  }
+
+  function getCodesUsedInputs() {
+    return Array.from(document.querySelectorAll('#updateForm input[name="codesUsed"]'));
   }
 
   function getStatusClass(value) {
@@ -2096,7 +2103,7 @@
     await refreshApp();
   }
 
-  async function performJobAction(jobId, action, payload = {}) {
+  async function performJobAction(jobId, action, payload = {}, options = {}) {
     const job = appState.jobs.find((item) => Number(item.id) === Number(jobId));
     if (!job) {
       throw new Error("Job not found in the current session.");
@@ -2113,10 +2120,14 @@
       queueLabel: `${action}:${job.title}`
     });
     if (result && result.queued) {
-      window.alert("You are offline. This job action was queued and will sync automatically.");
+      if (!options.silentQueued) {
+        window.alert("You are offline. This job action was queued and will sync automatically.");
+      }
       return;
     }
-    await refreshApp();
+    if (!options.skipRefresh) {
+      await refreshApp();
+    }
   }
 
   function openAssignDialog(jobId) {
@@ -2129,23 +2140,43 @@
     elements.assignDialog.showModal();
   }
 
-  function openUpdateDialog(jobId) {
+  function openUpdateDialog(jobId, options = {}) {
     const job = appState.jobs.find((item) => String(item.id) === String(jobId));
+    const mode = options.mode || "update";
     elements.updateForm.elements.jobId.value = String(jobId);
+    elements.updateForm.elements.submitMode.value = mode;
     elements.updateForm.elements.note.value = "";
     elements.updateForm.elements.attachment.value = "";
     elements.updateForm.elements.updateType.value = "Work performed";
     elements.updateForm.elements.workDone.value = "";
     elements.codesUsedSearch.value = "";
-    Array.from(elements.updateForm.elements.codesUsed.options).forEach((option) => {
-      option.selected = false;
-      option.hidden = false;
+    getCodesUsedInputs().forEach((input) => {
+      input.checked = false;
+      input.closest(".code-option")?.classList.remove("hidden");
     });
     if (job && canFieldDispatch(job)) {
       elements.updateForm.elements.updateType.value = "Dispatched";
     }
     if (job && canFieldStart(job)) {
       elements.updateForm.elements.updateType.value = "Crew started job";
+    }
+    if (mode === "complete") {
+      elements.updateForm.elements.updateType.value = "Closeout";
+      if (elements.updateDialogTitle) {
+        elements.updateDialogTitle.textContent = "Complete job";
+      }
+      if (elements.updateDialogSubmitButton) {
+        elements.updateDialogSubmitButton.textContent = "Submit close-out";
+      }
+      elements.updateForm.elements.note.placeholder = "What was completed on this job?";
+    } else {
+      if (elements.updateDialogTitle) {
+        elements.updateDialogTitle.textContent = "Add field update";
+      }
+      if (elements.updateDialogSubmitButton) {
+        elements.updateDialogSubmitButton.textContent = "Save update";
+      }
+      elements.updateForm.elements.note.placeholder = "What changed on this job?";
     }
     elements.updateDialog.showModal();
   }
@@ -2307,8 +2338,12 @@
 
   function filterCodeOptions(query) {
     const normalizedQuery = String(query || "").trim().toLowerCase();
-    Array.from(elements.updateForm.elements.codesUsed.options).forEach((option) => {
-      option.hidden = normalizedQuery ? !option.value.toLowerCase().includes(normalizedQuery) : false;
+    getCodesUsedInputs().forEach((input) => {
+      const optionRow = input.closest(".code-option");
+      if (!optionRow) {
+        return;
+      }
+      optionRow.classList.toggle("hidden", normalizedQuery ? !input.value.toLowerCase().includes(normalizedQuery) : false);
     });
   }
 
@@ -2528,14 +2563,7 @@
     }
 
     if (action === "complete-job") {
-      await performJobAction(jobId, "completeJob", {
-        issue: "Field crew marked the job complete.",
-        source: "field-actions"
-      });
-      if (elements.jobDetailDialog.open) {
-        elements.jobDetailDialog.close();
-      }
-      window.alert("Job was completed.");
+      openUpdateDialog(jobId, { mode: "complete" });
       return;
     }
 
@@ -2876,23 +2904,52 @@
       event.preventDefault();
       const form = new FormData(elements.updateForm);
       const jobId = Number(form.get("jobId"));
+      const submitMode = String(form.get("submitMode") || "update");
       const attachments = await filesToPayload(elements.updateForm.elements.attachment.files);
+      const codesUsed = getCodesUsedInputs().filter((input) => input.checked).map((input) => input.value);
       const result = await sendQueuedMutation({
         path: `/api/jobs/${jobId}/updates`,
         method: "POST",
         body: {
           updateType: form.get("updateType"),
           workDone: form.get("workDone"),
-          codesUsed: Array.from(elements.updateForm.elements.codesUsed.selectedOptions).map((option) => option.value),
+          codesUsed,
           note: form.get("note"),
           attachments,
           deviceTime: new Date().toISOString()
         },
         queueLabel: `update:${jobId}`
       });
+      if (submitMode === "complete" && result && result.queued) {
+        await performJobAction(jobId, "completeJob", {
+          issue: String(form.get("note") || "Field crew marked the job complete."),
+          source: "complete-job-dialog"
+        }, { silentQueued: true, skipRefresh: true });
+        elements.updateDialog.close();
+        if (elements.jobDetailDialog.open) {
+          elements.jobDetailDialog.close();
+        }
+        window.alert("Your close-out was saved on this device and will sync automatically when service returns.");
+        return;
+      }
+      if (!(result && result.queued) && submitMode === "complete") {
+        await performJobAction(jobId, "completeJob", {
+          issue: String(form.get("note") || "Field crew marked the job complete."),
+          source: "complete-job-dialog"
+        }, { skipRefresh: true });
+        elements.updateDialog.close();
+        if (elements.jobDetailDialog.open) {
+          elements.jobDetailDialog.close();
+        }
+        await refreshApp();
+        window.alert("Job was completed.");
+        return;
+      }
       elements.updateDialog.close();
       if (result && result.queued) {
-        window.alert("Your note and photos were saved on this device and will upload automatically when service returns.");
+        window.alert(submitMode === "complete"
+          ? "Your close-out was saved on this device and will sync automatically when service returns."
+          : "Your note and photos were saved on this device and will upload automatically when service returns.");
         return;
       }
       await refreshApp();
