@@ -107,23 +107,9 @@
           <button class="mobile-tab admin-only" type="button" data-screen="assignment">Activity</button>
         </nav>
 
-        <header class="hero">
-          <div>
-            <p class="eyebrow">Shared operations</p>
-            <h2 id="heroTitle">Welcome</h2>
-          </div>
-          <div class="hero-actions">
-            <button class="primary-btn admin-only" id="openJobDialog">Add job</button>
-            <input class="admin-only" id="exportDateFrom" type="date" aria-label="Export from date">
-            <input class="admin-only" id="exportDateTo" type="date" aria-label="Export to date">
-            <button class="secondary-btn admin-only" id="exportCsvButton" type="button">Export cycle CSV</button>
-            <button class="secondary-btn" id="refreshDataButton">Refresh data</button>
-          </div>
-        </header>
-
-        <section class="metric-grid" id="metricGrid"></section>
-
         <section class="screen active" data-screen-panel="overview">
+          <section class="metric-grid metric-grid-summary" id="metricGrid"></section>
+
           <div class="dashboard-grid">
             <article class="panel dashboard-panel">
               <div class="panel-header">

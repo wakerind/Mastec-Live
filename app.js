@@ -121,7 +121,6 @@
     inviteError: document.getElementById("inviteError"),
     syncStatusBadge: document.getElementById("syncStatusBadge"),
     sessionChipRow: document.getElementById("sessionChipRow"),
-    heroTitle: document.getElementById("heroTitle"),
     mobileTabs: document.querySelectorAll(".mobile-tab")
   };
 
@@ -619,8 +618,8 @@
 
   function downloadCycleExport() {
     const rows = buildCycleExportRows({
-      fromDate: elements.exportDateFrom.value,
-      toDate: elements.exportDateTo.value
+      fromDate: elements.exportDateFrom?.value || "",
+      toDate: elements.exportDateTo?.value || ""
     });
     if (!rows.length) {
       window.alert("No cycle data is available for the selected dates.");
@@ -1171,6 +1170,9 @@
     elements.screens.forEach((screen) => {
       screen.classList.toggle("active", screen.dataset.screenPanel === currentScreen);
     });
+    if (elements.metricGrid) {
+      elements.metricGrid.classList.toggle("hidden", currentScreen !== "overview");
+    }
   }
 
   function renderAppShell() {
@@ -1187,9 +1189,6 @@
       mobileTabs[2].textContent = "History";
       mobileTabs[3].dataset.screen = "assignment";
       mobileTabs[3].textContent = "Activity";
-    }
-    if (elements.heroTitle) {
-      elements.heroTitle.textContent = appState.session.role === "admin" ? "Welcome, Dispatcher" : "My jobs";
     }
     if (elements.sessionChipRow) {
       const roleLabel = appState.session.role === "admin" ? "DISPATCHER" : "TECHNICIAN";
@@ -1217,14 +1216,14 @@
 
     const cards = appState.session?.role === "admin"
       ? [
-          { label: "Open jobs", value: openJobs, note: "Live jobs in circulation" },
-          { label: "In progress", value: inProgress, note: "Crews actively working now" },
-          { label: "Review queue", value: completedQueue, note: "Close-outs waiting on dispatch review" }
+          { label: "Open", value: openJobs, note: "Live" },
+          { label: "Progress", value: inProgress, note: "Working" },
+          { label: "Review", value: completedQueue, note: "Queue" }
         ]
       : [
-          { label: "My live jobs", value: openJobs, note: "Assigned work on your board" },
-          { label: "In progress", value: inProgress, note: "Jobs you can close out next" },
-          { label: "At risk", value: dueRisk + blockers, note: "Overdue or blocked jobs needing attention" }
+          { label: "Jobs", value: openJobs, note: "Assigned" },
+          { label: "Progress", value: inProgress, note: "Working" },
+          { label: "At risk", value: dueRisk + blockers, note: "Needs help" }
         ];
 
     elements.metricGrid.innerHTML = cards.map((metric) => `
@@ -2664,15 +2663,21 @@
       filterCodeOptions(elements.codesUsedSearch.value);
     });
 
-    elements.openJobDialog.addEventListener("click", () => {
-      if (appState.session?.name) {
-        elements.jobForm.elements.dispatcherName.value = appState.session.name;
-      }
-      fillCrewDatalist(elements.crewOptions);
-      elements.jobDialog.showModal();
-    });
-    elements.exportCsvButton.addEventListener("click", downloadCycleExport);
-    elements.refreshDataButton.addEventListener("click", refreshApp);
+    if (elements.openJobDialog) {
+      elements.openJobDialog.addEventListener("click", () => {
+        if (appState.session?.name) {
+          elements.jobForm.elements.dispatcherName.value = appState.session.name;
+        }
+        fillCrewDatalist(elements.crewOptions);
+        elements.jobDialog.showModal();
+      });
+    }
+    if (elements.exportCsvButton) {
+      elements.exportCsvButton.addEventListener("click", downloadCycleExport);
+    }
+    if (elements.refreshDataButton) {
+      elements.refreshDataButton.addEventListener("click", refreshApp);
+    }
     if (elements.syncStatusBadge) {
       elements.syncStatusBadge.addEventListener("click", () => {
         flushQueuedMutations().catch((error) => {

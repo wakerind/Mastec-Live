@@ -1311,22 +1311,34 @@ dialog::backdrop {
   cursor: pointer;
 }
 
-.hero {
-  align-items: center;
-  padding: 22px 24px;
-}
-
-.hero h2 {
-  font-size: clamp(1.8rem, 2.8vw, 2.4rem);
-}
-
 .metric-card-compact {
-  padding: 18px 20px;
+  padding: 10px 12px;
+  min-height: 0;
+  border-radius: 18px;
 }
 
 .metric-card-compact strong {
-  margin-top: 10px;
-  font-size: 1.9rem;
+  margin-top: 4px;
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.metric-grid-summary {
+  margin-top: 0;
+  margin-bottom: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric-grid-summary .eyebrow {
+  margin-bottom: 2px;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+}
+
+.metric-grid-summary .metric-note {
+  margin: 0;
+  font-size: 0.72rem;
 }
 
 .shortcut-grid {
@@ -1575,7 +1587,6 @@ dialog::backdrop {
     padding: 14px;
   }
 
-  .hero,
   .panel,
   .metric-card,
   .job-card,
@@ -1587,7 +1598,6 @@ dialog::backdrop {
     border-radius: 22px;
   }
 
-  .hero,
   .panel-header,
   .job-card-header,
   .crew-card-header,
@@ -1602,6 +1612,10 @@ dialog::backdrop {
   .dashboard-grid,
   .login-grid {
     grid-template-columns: 1fr;
+  }
+
+  .metric-grid-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .field-command-grid {
@@ -1669,10 +1683,6 @@ dialog::backdrop {
     margin: -14px -14px 12px;
   }
 
-  .hero {
-    padding: 18px;
-  }
-
   .panel,
   .job-card,
   .info-card,
@@ -1680,10 +1690,6 @@ dialog::backdrop {
   .field-focus-card,
   .field-metric-card {
     padding: 16px;
-  }
-
-  .hero-actions {
-    display: none;
   }
 
   .shortcut-grid,
@@ -1731,5 +1737,21 @@ dialog::backdrop {
   .mobile-tab {
     font-size: 0.82rem;
     padding: 9px 6px;
+  }
+
+  .metric-grid-summary {
+    gap: 8px;
+  }
+
+  .metric-grid-summary .metric-card-compact {
+    padding: 8px 10px;
+  }
+
+  .metric-grid-summary .metric-card-compact strong {
+    font-size: 1rem;
+  }
+
+  .metric-grid-summary .metric-note {
+    font-size: 0.68rem;
   }
 }
