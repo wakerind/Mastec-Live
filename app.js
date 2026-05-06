@@ -96,6 +96,7 @@
     closeUpdateDialog: document.getElementById("closeUpdateDialog"),
     cancelUpdateDialog: document.getElementById("cancelUpdateDialog"),
     updateDialogTitle: document.getElementById("updateDialogTitle"),
+    updateDialogSubtitle: document.getElementById("updateDialogSubtitle"),
     updateDialogSubmitButton: document.getElementById("updateDialogSubmitButton"),
     updateDialogBackButton: document.getElementById("updateDialogBackButton"),
     updateDialogNextButton: document.getElementById("updateDialogNextButton"),
@@ -2190,6 +2191,7 @@
   function openUpdateDialog(jobId, options = {}) {
     const job = appState.jobs.find((item) => String(item.id) === String(jobId));
     const mode = options.mode || "update";
+    const isAdmin = appState.session?.role === "admin";
     if (elements.updateDialog.open) {
       elements.updateDialog.close();
     }
@@ -2215,7 +2217,13 @@
       elements.updateForm.elements.updateType.value = "Closeout";
       elements.closeoutSteps?.classList.remove("hidden");
       if (elements.updateDialogTitle) {
-        elements.updateDialogTitle.textContent = "Complete job";
+        elements.updateDialogTitle.textContent = isAdmin ? "Complete for crew" : "Complete job";
+      }
+      if (elements.updateDialogSubtitle) {
+        elements.updateDialogSubtitle.textContent = isAdmin
+          ? "Dispatch is submitting the close-out on behalf of the field crew."
+          : "";
+        elements.updateDialogSubtitle.classList.toggle("hidden", !isAdmin);
       }
       if (elements.updateDialogSubmitButton) {
         elements.updateDialogSubmitButton.textContent = "Submit close-out";
@@ -2226,6 +2234,10 @@
       elements.closeoutSteps?.classList.add("hidden");
       if (elements.updateDialogTitle) {
         elements.updateDialogTitle.textContent = "Add field update";
+      }
+      if (elements.updateDialogSubtitle) {
+        elements.updateDialogSubtitle.textContent = "";
+        elements.updateDialogSubtitle.classList.add("hidden");
       }
       if (elements.updateDialogSubmitButton) {
         elements.updateDialogSubmitButton.textContent = "Save update";

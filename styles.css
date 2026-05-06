@@ -1222,6 +1222,11 @@ button:hover {
   color: var(--muted);
 }
 
+.dialog-subtitle {
+  margin: 0 0 12px;
+  text-align: center;
+}
+
 .closeout-steps {
   display: flex;
   gap: 10px;
