@@ -101,13 +101,6 @@
         </section>
 
         <section class="screen active" data-screen-panel="overview">
-          <header class="hero hero-home">
-            <div>
-              <p class="eyebrow">Shared operations</p>
-              <h2 id="heroTitle">Welcome</h2>
-            </div>
-          </header>
-
           <section class="metric-grid metric-grid-summary" id="metricGrid"></section>
 
           <nav class="mobile-tabbar" aria-label="App sections">
@@ -123,6 +116,13 @@
                 <div>
                   <p class="eyebrow">Home dashboard</p>
                   <h3>Dispatch board</h3>
+                </div>
+                <div class="home-toolbar admin-only">
+                  <button class="primary-btn" id="openJobDialog" type="button">Add job</button>
+                  <input id="exportDateFrom" type="date" aria-label="Export from date">
+                  <input id="exportDateTo" type="date" aria-label="Export to date">
+                  <button class="secondary-btn" id="exportCsvButton" type="button">Export CSV</button>
+                  <button class="secondary-btn" id="refreshDataButton" type="button">Refresh</button>
                 </div>
               </div>
               <div class="shortcut-grid" id="dashboardShortcuts"></div>

@@ -1312,49 +1312,59 @@ dialog::backdrop {
 }
 
 .metric-card-compact {
-  padding: 8px 10px;
+  padding: 6px 8px;
   min-height: 0;
-  border-radius: 16px;
+  border-radius: 14px;
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.05);
 }
 
 .metric-card-compact strong {
-  margin-top: 2px;
-  font-size: 0.98rem;
+  margin-top: 1px;
+  font-size: 0.9rem;
   line-height: 1;
 }
 
 .metric-grid-summary {
   margin-top: 0;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .metric-grid-summary .eyebrow {
   margin-bottom: 1px;
-  font-size: 0.56rem;
+  font-size: 0.5rem;
   letter-spacing: 0.06em;
 }
 
 .metric-grid-summary .metric-note {
   margin: 0;
-  font-size: 0.62rem;
+  font-size: 0.54rem;
   line-height: 1.1;
 }
 
-.hero-home {
-  padding: 12px 14px;
-  margin-bottom: 8px;
-  border-radius: 18px;
+.metric-grid-summary .metric-note:empty {
+  display: none;
 }
 
-.hero-home .eyebrow {
-  margin-bottom: 2px;
+.home-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
-.hero-home h2 {
-  margin: 0;
-  font-size: 1.3rem;
+.home-toolbar input {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 9px 10px;
+  background: #ffffff;
+}
+
+.home-toolbar .primary-btn,
+.home-toolbar .secondary-btn {
+  padding: 9px 12px;
+  white-space: nowrap;
 }
 
 .shortcut-grid {
@@ -1761,14 +1771,24 @@ dialog::backdrop {
   }
 
   .metric-grid-summary .metric-card-compact {
-    padding: 7px 8px;
+    padding: 6px 7px;
   }
 
   .metric-grid-summary .metric-card-compact strong {
-    font-size: 0.92rem;
+    font-size: 0.82rem;
   }
 
   .metric-grid-summary .metric-note {
-    font-size: 0.58rem;
+    font-size: 0.5rem;
+  }
+
+  .home-toolbar {
+    width: 100%;
+  }
+
+  .home-toolbar input,
+  .home-toolbar .primary-btn,
+  .home-toolbar .secondary-btn {
+    width: 100%;
   }
 }

@@ -1227,14 +1227,14 @@
 
     const cards = appState.session?.role === "admin"
       ? [
-          { label: "Open", value: openJobs, note: "Live" },
-          { label: "Progress", value: inProgress, note: "Working" },
-          { label: "Review", value: completedQueue, note: "Queue" }
+          { label: "Open", value: openJobs, note: "" },
+          { label: "Progress", value: inProgress, note: "" },
+          { label: "Review", value: completedQueue, note: "" }
         ]
       : [
-          { label: "Jobs", value: openJobs, note: "Assigned" },
-          { label: "Progress", value: inProgress, note: "Working" },
-          { label: "At risk", value: dueRisk + blockers, note: "Needs help" }
+          { label: "Jobs", value: openJobs, note: "" },
+          { label: "Progress", value: inProgress, note: "" },
+          { label: "At risk", value: dueRisk + blockers, note: "" }
         ];
 
     elements.metricGrid.innerHTML = cards.map((metric) => `
