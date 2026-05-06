@@ -996,10 +996,20 @@
   }
 
   function renderDeadlineList() {
+    if (!elements.deadlineList) {
+      return;
+    }
     const items = [...appState.jobs]
       .filter((job) => !["Completed", "Closed"].includes(getLifecycleStage(job)))
-      .sort((a, b) => new Date(a.scheduledStartAt) - new Date(b.scheduledStartAt))
-      .slice(0, 5);
+      .sort((a, b) => {
+        const leftPriority = Boolean(a.blockerReason) ? 0 : getAssignmentWindow(a).label === "Past Due" ? 1 : getAssignmentWindow(a).label === "Due Soon" ? 2 : 3;
+        const rightPriority = Boolean(b.blockerReason) ? 0 : getAssignmentWindow(b).label === "Past Due" ? 1 : getAssignmentWindow(b).label === "Due Soon" ? 2 : 3;
+        if (leftPriority !== rightPriority) {
+          return leftPriority - rightPriority;
+        }
+        return new Date(a.scheduledStartAt) - new Date(b.scheduledStartAt);
+      })
+      .slice(0, 4);
 
     elements.deadlineList.innerHTML = items.length ? items.map((job) => {
       const window = getAssignmentWindow(job);
@@ -1015,16 +1025,21 @@
           <div class="job-meta">
             <span class="pill">${getLifecycleStage(job)}</span>
             <span class="pill">${getOperationalStatus(job)}</span>
-            <span class="pill">${job.jobType}</span>
             <span class="pill">${job.assignedTo || "Unassigned"}</span>
           </div>
-          <p class="muted">Schedule ${formatDateTime(job.scheduledStartAt)} | Due ${formatDateTime(job.dueAt || job.scheduledStartAt)}</p>
+          <p class="muted">${job.blockerReason || job.issue || "Review and open the job for details."}</p>
+          <div class="job-actions compact-actions">
+            <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
+          </div>
         </article>
       `;
     }).join("") : emptyState("No jobs available.");
   }
 
   function renderAlerts() {
+    if (!elements.alertList) {
+      return;
+    }
     const items = appState.jobs.filter((job) => {
       if (["Completed", "Closed"].includes(getLifecycleStage(job))) {
         return false;
@@ -1159,6 +1174,9 @@
   }
 
   function renderHistoryPreview() {
+    if (!elements.historyPreview) {
+      return;
+    }
     const items = [...appState.jobs]
       .filter((job) => getLifecycleStage(job) === "Closed")
       .sort((left, right) => new Date(getClosedAt(right) || 0) - new Date(getClosedAt(left) || 0))
@@ -1181,6 +1199,9 @@
   }
 
   function renderDashboardBreakdown() {
+    if (!elements.dashboardBreakdown) {
+      return;
+    }
     const closedJobs = appState.jobs.filter((job) => getLifecycleStage(job) === "Closed");
     const typeCounts = new Map();
     const codeCounts = new Map();
@@ -1355,6 +1376,7 @@
 
     elements.fieldList.innerHTML = items.length ? items.map((job) => {
       const needsUpdateBeforeComplete = isAccepted(job) && getOperationalStatus(job) === "In Progress" && getJobUpdates(job.id).length === 0;
+      const primaryAction = getPrimaryFieldAction(job);
       return `
       <article class="job-card">
         <div class="job-card-header">
@@ -1369,36 +1391,25 @@
           <span class="pill">${job.jobAddress || job.market}</span>
           <span class="pill">Schedule ${formatDateTime(job.scheduledStartAt)}</span>
           <span class="pill">Due ${formatDateTime(job.dueAt || job.scheduledStartAt)}</span>
-          <span class="pill">Planned ${Number(job.plannedHours || 0)}h</span>
-          <span class="pill">Actual ${Number(job.actualHours || 0)}h</span>
         </div>
         <div class="job-progress">
           <div class="progress-bar"><span style="width:${job.completion}%"></span></div>
-          <p class="muted">${job.completion}% complete | ${formatCurrency(job.jobValue)} value | ${formatCurrency(job.laborCost)} labor</p>
-          <p class="muted">${job.jobDescription || job.issue}</p>
-          <p class="muted">${job.blockerReason || "No active blockers reported."}</p>
-          <p class="muted">Dispatcher: ${job.dispatcherName || "Not listed"} | ${formatPhone(job.dispatcherPhone)}</p>
-          <p class="muted">Assignment: ${formatDateTime(job.assignmentAt || job.createdAt)} | Dispatch: ${job.dispatchedAt ? formatDateTime(job.dispatchedAt) : "Pending"} | Non-dispatch hours: ${hoursBetween(job.scheduledStartAt, job.dispatchedAt) ?? "n/a"}</p>
+          <p class="muted">${job.completion}% complete</p>
+          <p class="muted">${job.blockerReason || job.issue || "Tap open job for full details and history."}</p>
+          <p class="muted">Dispatcher: ${job.dispatcherName || "Not listed"}${job.dispatcherPhone ? ` | ${formatPhone(job.dispatcherPhone)}` : ""}</p>
         </div>
         <div class="job-actions">
           <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
+          ${primaryAction.action !== "open-job" ? `<button class="action-btn" data-action="${primaryAction.action}" data-id="${job.id}">${primaryAction.label}</button>` : ""}
           ${getMapsUrl(job) ? `<a class="action-btn action-link" href="${getMapsUrl(job)}" target="_blank" rel="noreferrer">Open in Maps</a>` : ""}
           ${job.dispatcherPhone ? `<a class="action-btn action-link" href="tel:${job.dispatcherPhone}">Call dispatcher</a>` : ""}
-          ${canFieldAccept(job) ? `<button class="action-btn" data-action="accept-job" data-id="${job.id}">Accept job</button>` : ""}
-          ${canFieldDispatch(job) ? `<button class="action-btn" data-action="dispatch-job" data-id="${job.id}">Dispatch</button>` : ""}
-          ${canFieldStart(job) ? `<button class="action-btn" data-action="start-job" data-id="${job.id}">Start job</button>` : ""}
           ${canFieldReject(job) ? `<button class="action-btn" data-action="reject-job" data-id="${job.id}">Reject job</button>` : ""}
-          ${canFieldComplete(job) ? `<button class="action-btn" data-action="complete-job" data-id="${job.id}">Complete job</button>` : ""}
           <button class="action-btn" data-action="log-update" data-id="${job.id}">Add update</button>
           ${job.blockerReason
             ? `<button class="action-btn" data-action="clear-blocker" data-id="${job.id}">Clear blocker</button>`
             : `<button class="action-btn" data-action="add-blocker" data-id="${job.id}">Report blocker</button>`}
         </div>
         ${needsUpdateBeforeComplete ? `<p class="completion-hint">Add at least one update before completing this job.</p>` : ""}
-        ${renderUpdatesPreview(job.id)}
-        <div class="job-tags requirement-row">
-          ${buildRequirementBadges(job)}
-        </div>
       </article>
     `;}).join("") : emptyState("No assigned field jobs match the current filters.");
   }
@@ -1810,6 +1821,23 @@
     await refreshApp();
   }
 
+  async function performJobAction(jobId, action, payload = {}) {
+    const job = appState.jobs.find((item) => Number(item.id) === Number(jobId));
+    if (!job) {
+      throw new Error("Job not found in the current session.");
+    }
+    await api(`/api/jobs/${jobId}/actions`, {
+      method: "POST",
+      body: JSON.stringify({
+        action,
+        payload,
+        expectedJobVersion: Number(job.jobVersion || 0),
+        deviceTime: new Date().toISOString()
+      })
+    });
+    await refreshApp();
+  }
+
   function openAssignDialog(jobId) {
     const job = appState.jobs.find((item) => String(item.id) === String(jobId));
     if (!job) {
@@ -2020,7 +2048,9 @@
         <span class="muted">Schedule date: ${formatDateTime(job.scheduledStartAt)}</span><br>
         <span class="muted">Due date: ${formatDateTime(job.dueAt || job.scheduledStartAt)}</span><br>
         <span class="muted">Description: ${job.jobDescription || "No description added yet."}</span><br>
-        <span class="muted">Notes: ${job.blockerReason || job.issue || "No notes added yet."}</span>
+        <span class="muted">Status note: ${job.blockerReason || job.issue || "No notes added yet."}</span><br>
+        <span class="muted">Completion: ${job.completion}% | Planned ${Number(job.plannedHours || 0)}h | Actual ${Number(job.actualHours || 0)}h</span><br>
+        <span class="muted">Assigned at: ${formatDateTime(job.assignmentAt || job.createdAt)} | Dispatch: ${job.dispatchedAt ? formatDateTime(job.dispatchedAt) : "Pending"}</span>
       </article>
     `;
     elements.jobDetailQuickLinks.innerHTML = `
@@ -2161,10 +2191,8 @@
     }
 
     if (action === "admin-signoff") {
-      await updateJob(jobId, {
-        adminApproved: true,
+      await performJobAction(jobId, "adminSignoff", {
         issue: "Admin signoff completed.",
-        sourceAction: "adminSignoff",
         source: "admin-board"
       });
       window.alert("Job was approved and is ready for assignment.");
@@ -2172,10 +2200,8 @@
     }
 
     if (action === "accept-job") {
-      await updateJob(jobId, {
-        accepted: true,
+      await performJobAction(jobId, "acceptJob", {
         issue: "Assigned team accepted the job.",
-        sourceAction: "acceptJob",
         source: "field-actions"
       });
       window.alert("Job was accepted.");
@@ -2183,11 +2209,8 @@
     }
 
     if (action === "dispatch-job") {
-      await updateJob(jobId, {
-        dispatched: true,
-        accepted: true,
+      await performJobAction(jobId, "dispatchJob", {
         issue: "Crew dispatched to the scheduled job.",
-        sourceAction: "dispatchJob",
         source: "field-actions"
       });
       window.alert("Dispatch time was recorded.");
@@ -2195,12 +2218,8 @@
     }
 
     if (action === "start-job") {
-      await updateJob(jobId, {
-        started: true,
-        accepted: true,
-        lifecycleStage: "In Progress",
+      await performJobAction(jobId, "startJob", {
         issue: "Crew officially started work and moved the job into progress.",
-        sourceAction: "startJob",
         source: "field-actions"
       });
       window.alert("Job was started and is now in progress.");
@@ -2213,12 +2232,8 @@
     }
 
     if (action === "complete-job") {
-      await updateJob(jobId, {
-        lifecycleStage: "Completed",
-        completion: 100,
-        accepted: true,
+      await performJobAction(jobId, "completeJob", {
         issue: "Field crew marked the job complete.",
-        sourceAction: "completeJob",
         source: "field-actions"
       });
       if (elements.jobDetailDialog.open) {
@@ -2229,11 +2244,8 @@
     }
 
     if (action === "review-job") {
-      await updateJob(jobId, {
-        adminReviewed: true,
-        lifecycleStage: "Completed",
+      await performJobAction(jobId, "adminReviewJob", {
         issue: "Final admin review completed. Job closed.",
-        sourceAction: "adminReviewJob",
         source: "admin-review"
       });
       window.alert("Final admin review completed. Job was closed.");
@@ -2241,10 +2253,8 @@
     }
 
     if (action === "close-job") {
-      await updateJob(jobId, {
-        lifecycleStage: "Closed",
+      await performJobAction(jobId, "closeJob", {
         issue: "Job closed after admin review.",
-        sourceAction: "closeJob",
         source: "admin-review"
       });
       return;
@@ -2255,11 +2265,10 @@
       if (!blockerReason) {
         return;
       }
-      await updateJob(jobId, {
+      await performJobAction(jobId, "addBlocker", {
         blockerReason,
         blockerStage: getLifecycleStage(job),
         issue: blockerReason,
-        sourceAction: "addBlocker",
         source: "field-actions"
       });
       return;
@@ -2271,11 +2280,8 @@
     }
 
     if (action === "clear-blocker") {
-      await updateJob(jobId, {
-        blockerReason: "",
-        blockerStage: "",
+      await performJobAction(jobId, "clearBlocker", {
         issue: "Blocker cleared. Work resumed.",
-        sourceAction: "clearBlocker",
         source: "field-actions"
       });
       return;
@@ -2546,11 +2552,9 @@
         window.alert(`That crew already has overlapping work scheduled: ${conflicts.map((conflict) => conflict.title).join(", ")}`);
         return;
       }
-      await updateJob(jobId, {
+      await performJobAction(jobId, "assignJob", {
         assignedTo,
-        lifecycleStage: assignedTo ? "Assigned" : "Uploaded",
-        issue: `Assigned to ${assignedTo}. Waiting on acknowledgement.`,
-        sourceAction: "assignJob",
+        issue: assignedTo ? `Assigned to ${assignedTo}. Waiting on acknowledgement.` : "Assignment cleared.",
         source: "assign-dialog"
       });
       elements.assignDialog.close();
@@ -2587,11 +2591,9 @@
         return;
       }
       elements.rejectError.textContent = "";
-      await updateJob(jobId, {
-        rejected: true,
+      await performJobAction(jobId, "rejectJob", {
         rejectionReason,
         issue: `Rejected by field team: ${rejectionReason}`,
-        sourceAction: "rejectJob",
         source: "reject-dialog"
       });
       elements.rejectDialog.close();

@@ -266,12 +266,18 @@ button:hover {
 .dashboard-grid {
   margin-top: 24px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
 }
 
 .dashboard-panel {
   min-height: 100%;
+}
+
+.compact-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .shortcut-grid,

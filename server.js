@@ -291,6 +291,295 @@ function validateExplicitAction(existing, sourceAction) {
   return "";
 }
 
+function buildActionMutationBody(action, payload = {}) {
+  const normalized = { ...payload };
+  switch (action) {
+    case "assignJob":
+      return {
+        assignedTo: String(payload.assignedTo || ""),
+        lifecycleStage: payload.assignedTo ? "Assigned" : "Uploaded",
+        issue: payload.issue || (payload.assignedTo
+          ? `Assigned to ${payload.assignedTo}. Waiting on acknowledgement.`
+          : "Assignment cleared."),
+        sourceAction: "assignJob",
+        source: payload.source || "job-action"
+      };
+    case "acceptJob":
+      return { accepted: true, issue: payload.issue || "Assigned team accepted the job.", sourceAction: "acceptJob", source: payload.source || "job-action" };
+    case "dispatchJob":
+      return { dispatched: true, accepted: true, issue: payload.issue || "Crew dispatched to the scheduled job.", sourceAction: "dispatchJob", source: payload.source || "job-action" };
+    case "startJob":
+      return { started: true, accepted: true, lifecycleStage: "In Progress", issue: payload.issue || "Crew officially started work and moved the job into progress.", sourceAction: "startJob", source: payload.source || "job-action" };
+    case "completeJob":
+      return { lifecycleStage: "Completed", completion: 100, accepted: true, issue: payload.issue || "Field crew marked the job complete.", sourceAction: "completeJob", source: payload.source || "job-action" };
+    case "rejectJob":
+      return { rejected: true, rejectionReason: String(payload.rejectionReason || "").trim(), issue: payload.issue || `Rejected by field team: ${String(payload.rejectionReason || "").trim()}`, sourceAction: "rejectJob", source: payload.source || "job-action" };
+    case "addBlocker":
+      return { blockerReason: String(payload.blockerReason || "").trim(), blockerStage: payload.blockerStage || "", issue: payload.issue || String(payload.blockerReason || "").trim(), sourceAction: "addBlocker", source: payload.source || "job-action" };
+    case "clearBlocker":
+      return { blockerReason: "", blockerStage: "", issue: payload.issue || "Blocker cleared. Work resumed.", sourceAction: "clearBlocker", source: payload.source || "job-action" };
+    case "adminSignoff":
+      return { adminApproved: true, issue: payload.issue || "Admin signoff completed.", sourceAction: "adminSignoff", source: payload.source || "job-action" };
+    case "adminReviewJob":
+      return { adminReviewed: true, lifecycleStage: "Completed", issue: payload.issue || "Final admin review completed. Job closed.", sourceAction: "adminReviewJob", source: payload.source || "job-action" };
+    case "closeJob":
+      return { lifecycleStage: "Closed", issue: payload.issue || "Job closed after admin review.", sourceAction: "closeJob", source: payload.source || "job-action" };
+    default:
+      return null;
+  }
+}
+
+async function mutateJob({ user, res, jobId, body }) {
+  const existing = await db.findJobById(jobId);
+  if (!existing) {
+    sendJson(res, 404, { error: "Job not found" });
+    return true;
+  }
+  const expectedJobVersion = Number(body.expectedJobVersion || 0);
+  if (!expectedJobVersion || expectedJobVersion !== Number(existing.jobVersion || 0)) {
+    sendJson(res, 409, {
+      error: "This job changed in another session. Refresh the app and try again.",
+      latestJobVersion: Number(existing.jobVersion || 0)
+    });
+    return true;
+  }
+  if (user.role === "field" && existing.assignedTo !== user.name) {
+    sendJson(res, 403, { error: "Field users can only update their assigned jobs" });
+    return true;
+  }
+  const sourceAction = normalizeSourceAction(body.sourceAction);
+  const actionConflict = validateExplicitAction(existing, sourceAction);
+  if (actionConflict) {
+    sendJson(res, 409, { error: actionConflict, latestJobVersion: Number(existing.jobVersion || 0) });
+    return true;
+  }
+
+  const next = { ...existing };
+  const previousState = cloneRecord(existing);
+  const previousLifecycleStage = existing.lifecycleStage || "Uploaded";
+  if (user.role === "admin") {
+    const previousAssignedTo = next.assignedTo;
+    next.requestedBy = body.requestedBy ?? next.requestedBy;
+    next.jobAddress = body.jobAddress ?? next.jobAddress;
+    next.jobDescription = body.jobDescription ?? next.jobDescription;
+    next.assignedTo = body.assignedTo ?? next.assignedTo;
+    next.dispatcherName = body.dispatcherName ?? next.dispatcherName;
+    next.dispatcherPhone = body.dispatcherPhone ?? next.dispatcherPhone;
+    next.dueAt = body.dueAt ?? next.dueAt;
+    next.assignmentAt = body.assignmentAt ?? next.assignmentAt;
+    next.scheduledStartAt = body.scheduledStartAt ?? next.scheduledStartAt;
+    next.priority = body.priority ?? next.priority;
+    next.jobValue = body.jobValue ?? next.jobValue;
+    next.laborCost = body.laborCost ?? next.laborCost;
+    next.plannedHours = body.plannedHours ?? next.plannedHours;
+    next.lifecycleStage = body.lifecycleStage ?? next.lifecycleStage;
+    next.adminApproved = body.adminApproved ?? next.adminApproved;
+    if (body.adminReviewed === true) {
+      next.adminReviewedAt = next.adminReviewedAt || nowIso();
+    }
+    if (body.adminReviewed === false) {
+      next.adminReviewedAt = null;
+      if (next.lifecycleStage === "Closed") {
+        next.lifecycleStage = "Completed";
+        next.issue = "Final admin review removed. Job moved back to completed.";
+      }
+    }
+    if (body.adminReviewed === true && ["Completed", "Admin Reviewed"].includes(next.lifecycleStage)) {
+      next.lifecycleStage = "Closed";
+      next.issue = "Final admin review completed. Job closed.";
+    }
+
+    if (next.assignedTo && next.assignedTo !== previousAssignedTo) {
+      next.dispatcherName = body.dispatcherName ?? user.name ?? next.dispatcherName;
+      next.assignmentAt = nowIso();
+      next.acceptedAt = null;
+      next.dispatchedAt = null;
+      next.startedAt = null;
+      next.completedAt = null;
+      next.rejectedAt = null;
+      next.rejectionReason = "";
+      if (next.adminApproved) {
+        next.lifecycleStage = "Assigned";
+      } else if (next.lifecycleStage === "Uploaded") {
+        next.lifecycleStage = "Uploaded";
+      }
+    }
+
+    if (!next.assignedTo && previousAssignedTo) {
+      next.acceptedAt = null;
+      next.dispatchedAt = null;
+      next.startedAt = null;
+      next.completedAt = null;
+      next.rejectedAt = null;
+      next.rejectionReason = "";
+    }
+  }
+
+  if (user.role === "field" && body.lifecycleStage === "Completed") {
+    next.lifecycleStage = "Completed";
+  }
+
+  if (user.role === "field" && body.rejected === true) {
+    next.rejectedAt = nowIso();
+    next.rejectionReason = String(body.rejectionReason || "").trim();
+    next.assignedTo = "";
+    next.acceptedAt = null;
+    next.startedAt = null;
+    next.lifecycleStage = "Uploaded";
+    next.issue = next.rejectionReason
+      ? `Rejected by field team: ${next.rejectionReason}`
+      : "Rejected by field team for immediate admin review.";
+  }
+
+  if (body.accepted === true && next.assignedTo) {
+    next.acceptedAt = next.acceptedAt || nowIso();
+    next.rejectedAt = null;
+    next.rejectionReason = "";
+    if (next.scheduledStartAt && !["Completed", "Closed"].includes(next.lifecycleStage)) {
+      next.lifecycleStage = "Scheduled";
+    }
+  }
+  if (body.dispatched === true) {
+    next.dispatchedAt = next.dispatchedAt || nowIso();
+  }
+  if (body.started === true) {
+    next.dispatchedAt = next.dispatchedAt || nowIso();
+    next.startedAt = next.startedAt || nowIso();
+    if (!["Completed", "Closed"].includes(next.lifecycleStage)) {
+      next.lifecycleStage = "In Progress";
+    }
+  }
+  if (body.resetDispatched === true) {
+    next.dispatchedAt = null;
+  }
+  if (body.resetStarted === true) {
+    next.startedAt = null;
+    if (next.lifecycleStage === "In Progress") {
+      next.lifecycleStage = "Scheduled";
+    }
+  }
+
+  next.completion = body.completion ?? next.completion;
+  next.actualHours = body.actualHours ?? next.actualHours;
+  next.blockerReason = body.blockerReason ?? next.blockerReason;
+  next.blockerStage = body.blockerStage ?? next.blockerStage;
+  next.issue = body.issue ?? next.issue;
+  next.durationVariance = calculateDurationVariance(next.plannedHours, next.actualHours);
+
+  if (!isScheduleBeforeDue(next.scheduledStartAt, next.dueAt)) {
+    sendJson(res, 400, { error: "Schedule date must be before or equal to the due date." });
+    return true;
+  }
+
+  if (!next.assignedTo && next.lifecycleStage !== "Uploaded") {
+    next.lifecycleStage = "Uploaded";
+  }
+
+  if (next.assignedTo && next.adminApproved && next.lifecycleStage === "Uploaded") {
+    next.lifecycleStage = "Assigned";
+  }
+
+  if (!["Completed", "Closed"].includes(next.lifecycleStage) && next.assignedTo && next.acceptedAt) {
+    if (next.startedAt) {
+      next.lifecycleStage = "In Progress";
+    } else if (isScheduledPastDue(next.scheduledStartAt)) {
+      next.lifecycleStage = "Scheduled";
+    } else if (next.lifecycleStage === "Assigned") {
+      next.lifecycleStage = "Scheduled";
+    }
+  }
+
+  if (next.lifecycleStage !== "Uploaded" && !next.adminApproved) {
+    sendJson(res, 400, { error: "Admin signoff is required before moving the job forward" });
+    return true;
+  }
+
+  if (next.lifecycleStage === "Scheduled" && !next.acceptedAt) {
+    sendJson(res, 400, { error: "Assigned team must accept the job before it can be scheduled" });
+    return true;
+  }
+
+  if (["In Progress", "Completed", "Admin Reviewed", "Closed"].includes(next.lifecycleStage) && !next.startedAt) {
+    next.startedAt = nowIso();
+  }
+
+  if (next.lifecycleStage === "Scheduled" && next.startedAt) {
+    next.lifecycleStage = "In Progress";
+  }
+
+  if (user.role === "field" && next.lifecycleStage === "Completed") {
+    const existingUpdates = await db.listJobUpdates([jobId]);
+    if (!existingUpdates.length) {
+      sendJson(res, 400, { error: "Add at least one update before completing the job." });
+      return true;
+    }
+  }
+
+  if (next.lifecycleStage === "Closed" && !next.adminReviewedAt) {
+    sendJson(res, 400, { error: "Final admin review is required before closing the job" });
+    return true;
+  }
+
+  if (next.blockerReason && !next.blockerStage) {
+    next.blockerStage = next.lifecycleStage;
+  } else if (!next.blockerReason) {
+    next.blockerStage = "";
+  }
+
+  if (next.lifecycleStage !== "Uploaded") {
+    next.rejectedAt = null;
+    next.rejectionReason = "";
+  }
+
+  if (["Completed", "Closed"].includes(next.lifecycleStage)) {
+    next.blockerReason = "";
+    next.blockerStage = "";
+    next.completion = 100;
+    next.completedAt = next.completedAt || nowIso();
+  } else if (!["Completed", "Closed"].includes(next.lifecycleStage) && body.lifecycleStage) {
+    next.completedAt = null;
+  }
+
+  next.intakeStatus = currentLifecycle(next);
+  next.fieldStatus = getOperationalStatus(next);
+  const serverTimestamp = nowIso();
+  next.updatedAt = serverTimestamp;
+  next.jobVersion = Number(existing.jobVersion || 0) + 1;
+
+  const updated = await db.updateJob(jobId, next, expectedJobVersion);
+  if (!updated) {
+    sendJson(res, 409, {
+      error: "This job changed in another session. Refresh the app and try again.",
+      latestJobVersion: Number(existing.jobVersion || 0)
+    });
+    return true;
+  }
+  if (next.lifecycleStage !== previousLifecycleStage) {
+    await db.recordStageTransition({
+      jobId,
+      toStage: next.lifecycleStage,
+      actorRole: user.role,
+      actorName: user.name,
+      changedAt: serverTimestamp
+    });
+  }
+  const nextState = cloneRecord(next);
+  await db.recordJobAuditEvent({
+    jobId,
+    action: sourceAction,
+    actorRole: user.role,
+    actorName: user.name,
+    source: String(body.source || body.sourceAction || "job-update"),
+    deviceTime: body.deviceTime ? String(body.deviceTime) : null,
+    serverTime: serverTimestamp,
+    previousState,
+    nextState,
+    changedFields: diffRecordFields(previousState, nextState)
+  });
+  sendJson(res, 200, { ok: true, jobVersion: next.jobVersion, updatedAt: next.updatedAt });
+  return true;
+}
+
 function computeKpis(jobs, crews) {
   const contractorNames = new Set(crews.filter((crew) => crew.type === "Contractor").map((crew) => crew.name));
   const buckets = new Map();
@@ -671,257 +960,32 @@ const server = http.createServer(async (req, res) => {
       }
       const jobId = Number(url.pathname.split("/").pop());
       const body = await readBody(req);
-      const existing = await db.findJobById(jobId);
-      if (!existing) {
-        sendJson(res, 404, { error: "Job not found" });
+      await mutateJob({ user, res, jobId, body });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname.match(/^\/api\/jobs\/\d+\/actions$/)) {
+      const user = await requireUser(req, res);
+      if (!user) {
         return;
       }
-      const expectedJobVersion = Number(body.expectedJobVersion || 0);
-      if (!expectedJobVersion || expectedJobVersion !== Number(existing.jobVersion || 0)) {
-        sendJson(res, 409, {
-          error: "This job changed in another session. Refresh the app and try again.",
-          latestJobVersion: Number(existing.jobVersion || 0)
-        });
+      const jobId = Number(url.pathname.split("/")[3]);
+      const body = await readBody(req);
+      const actionBody = buildActionMutationBody(String(body.action || ""), body.payload || {});
+      if (!actionBody) {
+        sendJson(res, 400, { error: "Unsupported job action" });
         return;
       }
-      if (user.role === "field" && existing.assignedTo !== user.name) {
-        sendJson(res, 403, { error: "Field users can only update their assigned jobs" });
-        return;
-      }
-      const sourceAction = normalizeSourceAction(body.sourceAction);
-      const actionConflict = validateExplicitAction(existing, sourceAction);
-      if (actionConflict) {
-        sendJson(res, 409, { error: actionConflict, latestJobVersion: Number(existing.jobVersion || 0) });
-        return;
-      }
-
-      const next = { ...existing };
-      const previousState = cloneRecord(existing);
-      const previousLifecycleStage = existing.lifecycleStage || "Uploaded";
-      if (user.role === "admin") {
-        const previousAssignedTo = next.assignedTo;
-        next.requestedBy = body.requestedBy ?? next.requestedBy;
-        next.jobAddress = body.jobAddress ?? next.jobAddress;
-        next.jobDescription = body.jobDescription ?? next.jobDescription;
-        next.assignedTo = body.assignedTo ?? next.assignedTo;
-        next.dispatcherName = body.dispatcherName ?? next.dispatcherName;
-        next.dispatcherPhone = body.dispatcherPhone ?? next.dispatcherPhone;
-        next.dueAt = body.dueAt ?? next.dueAt;
-        next.assignmentAt = body.assignmentAt ?? next.assignmentAt;
-        next.scheduledStartAt = body.scheduledStartAt ?? next.scheduledStartAt;
-        next.priority = body.priority ?? next.priority;
-        next.jobValue = body.jobValue ?? next.jobValue;
-        next.laborCost = body.laborCost ?? next.laborCost;
-        next.plannedHours = body.plannedHours ?? next.plannedHours;
-        next.lifecycleStage = body.lifecycleStage ?? next.lifecycleStage;
-        next.adminApproved = body.adminApproved ?? next.adminApproved;
-        if (body.adminReviewed === true) {
-          next.adminReviewedAt = next.adminReviewedAt || nowIso();
-        }
-        if (body.adminReviewed === false) {
-          next.adminReviewedAt = null;
-          if (next.lifecycleStage === "Closed") {
-            next.lifecycleStage = "Completed";
-            next.issue = "Final admin review removed. Job moved back to completed.";
-          }
-        }
-        if (body.adminReviewed === true && ["Completed", "Admin Reviewed"].includes(next.lifecycleStage)) {
-          next.lifecycleStage = "Closed";
-          next.issue = "Final admin review completed. Job closed.";
-        }
-
-        if (next.assignedTo && next.assignedTo !== previousAssignedTo) {
-          next.dispatcherName = body.dispatcherName ?? user.name ?? next.dispatcherName;
-          next.assignmentAt = nowIso();
-          next.acceptedAt = null;
-          next.dispatchedAt = null;
-          next.startedAt = null;
-          next.completedAt = null;
-          next.rejectedAt = null;
-          next.rejectionReason = "";
-          if (next.adminApproved) {
-            if (next.scheduledStartAt) {
-              next.lifecycleStage = "Assigned";
-            } else {
-              next.lifecycleStage = "Assigned";
-            }
-          } else if (next.lifecycleStage === "Uploaded") {
-            next.lifecycleStage = "Uploaded";
-          }
-        }
-
-        if (!next.assignedTo && previousAssignedTo) {
-          next.acceptedAt = null;
-          next.dispatchedAt = null;
-          next.startedAt = null;
-          next.completedAt = null;
-          next.rejectedAt = null;
-          next.rejectionReason = "";
-        }
-      }
-
-      if (user.role === "field" && body.lifecycleStage === "Completed") {
-        next.lifecycleStage = "Completed";
-      }
-
-      if (user.role === "field" && body.rejected === true) {
-        next.rejectedAt = nowIso();
-        next.rejectionReason = String(body.rejectionReason || "").trim();
-        next.assignedTo = "";
-        next.acceptedAt = null;
-        next.startedAt = null;
-        next.lifecycleStage = "Uploaded";
-        next.issue = next.rejectionReason
-          ? `Rejected by field team: ${next.rejectionReason}`
-          : "Rejected by field team for immediate admin review.";
-      }
-
-      if (body.accepted === true && next.assignedTo) {
-        next.acceptedAt = next.acceptedAt || nowIso();
-        next.rejectedAt = null;
-        next.rejectionReason = "";
-        if (next.scheduledStartAt && !["Completed", "Closed"].includes(next.lifecycleStage)) {
-          next.lifecycleStage = "Scheduled";
-        }
-      }
-      if (body.dispatched === true) {
-        next.dispatchedAt = next.dispatchedAt || nowIso();
-      }
-      if (body.started === true) {
-        next.dispatchedAt = next.dispatchedAt || nowIso();
-        next.startedAt = next.startedAt || nowIso();
-        if (!["Completed", "Closed"].includes(next.lifecycleStage)) {
-          next.lifecycleStage = "In Progress";
-        }
-      }
-      if (body.resetDispatched === true) {
-        next.dispatchedAt = null;
-      }
-      if (body.resetStarted === true) {
-        next.startedAt = null;
-        if (next.lifecycleStage === "In Progress") {
-          next.lifecycleStage = "Scheduled";
-        }
-      }
-
-      next.completion = body.completion ?? next.completion;
-      next.actualHours = body.actualHours ?? next.actualHours;
-      next.blockerReason = body.blockerReason ?? next.blockerReason;
-      next.blockerStage = body.blockerStage ?? next.blockerStage;
-      next.issue = body.issue ?? next.issue;
-      next.durationVariance = calculateDurationVariance(next.plannedHours, next.actualHours);
-
-      if (!isScheduleBeforeDue(next.scheduledStartAt, next.dueAt)) {
-        sendJson(res, 400, { error: "Schedule date must be before or equal to the due date." });
-        return;
-      }
-
-      if (!next.assignedTo && next.lifecycleStage !== "Uploaded") {
-        next.lifecycleStage = "Uploaded";
-      }
-
-      if (next.assignedTo && next.adminApproved && next.lifecycleStage === "Uploaded") {
-        next.lifecycleStage = "Assigned";
-      }
-
-      if (!["Completed", "Closed"].includes(next.lifecycleStage) && next.assignedTo && next.acceptedAt) {
-        if (next.startedAt) {
-          next.lifecycleStage = "In Progress";
-        } else if (isScheduledPastDue(next.scheduledStartAt)) {
-          next.lifecycleStage = "Scheduled";
-        } else if (next.lifecycleStage === "Assigned") {
-          next.lifecycleStage = "Scheduled";
-        }
-      }
-
-      if (next.lifecycleStage !== "Uploaded" && !next.adminApproved) {
-        sendJson(res, 400, { error: "Admin signoff is required before moving the job forward" });
-        return;
-      }
-
-      if (next.lifecycleStage === "Scheduled" && !next.acceptedAt) {
-        sendJson(res, 400, { error: "Assigned team must accept the job before it can be scheduled" });
-        return;
-      }
-
-      if (["In Progress", "Completed", "Admin Reviewed", "Closed"].includes(next.lifecycleStage) && !next.startedAt) {
-        next.startedAt = nowIso();
-      }
-
-      if (next.lifecycleStage === "Scheduled" && next.startedAt) {
-        next.lifecycleStage = "In Progress";
-      }
-
-      if (user.role === "field" && next.lifecycleStage === "Completed") {
-        const existingUpdates = await db.listJobUpdates([jobId]);
-        if (!existingUpdates.length) {
-          sendJson(res, 400, { error: "Add at least one update before completing the job." });
-          return;
-        }
-      }
-
-      if (next.lifecycleStage === "Closed" && !next.adminReviewedAt) {
-        sendJson(res, 400, { error: "Final admin review is required before closing the job" });
-        return;
-      }
-
-      if (next.blockerReason && !next.blockerStage) {
-        next.blockerStage = next.lifecycleStage;
-      } else if (!next.blockerReason) {
-        next.blockerStage = "";
-      }
-
-      if (next.lifecycleStage !== "Uploaded") {
-        next.rejectedAt = null;
-        next.rejectionReason = "";
-      }
-
-      if (["Completed", "Closed"].includes(next.lifecycleStage)) {
-        next.blockerReason = "";
-        next.blockerStage = "";
-        next.completion = 100;
-        next.completedAt = next.completedAt || nowIso();
-      } else if (!["Completed", "Closed"].includes(next.lifecycleStage) && body.lifecycleStage) {
-        next.completedAt = null;
-      }
-
-      next.intakeStatus = currentLifecycle(next);
-      next.fieldStatus = getOperationalStatus(next);
-      const serverTimestamp = nowIso();
-      next.updatedAt = serverTimestamp;
-      next.jobVersion = Number(existing.jobVersion || 0) + 1;
-
-      const updated = await db.updateJob(jobId, next, expectedJobVersion);
-      if (!updated) {
-        sendJson(res, 409, {
-          error: "This job changed in another session. Refresh the app and try again.",
-          latestJobVersion: Number(existing.jobVersion || 0)
-        });
-        return;
-      }
-      if (next.lifecycleStage !== previousLifecycleStage) {
-        await db.recordStageTransition({
-          jobId,
-          toStage: next.lifecycleStage,
-          actorRole: user.role,
-          actorName: user.name,
-          changedAt: serverTimestamp
-        });
-      }
-      const nextState = cloneRecord(next);
-      await db.recordJobAuditEvent({
+      await mutateJob({
+        user,
+        res,
         jobId,
-        action: sourceAction,
-        actorRole: user.role,
-        actorName: user.name,
-        source: String(body.source || body.sourceAction || "job-update"),
-        deviceTime: body.deviceTime ? String(body.deviceTime) : null,
-        serverTime: serverTimestamp,
-        previousState,
-        nextState,
-        changedFields: diffRecordFields(previousState, nextState)
+        body: {
+          ...actionBody,
+          expectedJobVersion: body.expectedJobVersion,
+          deviceTime: body.deviceTime
+        }
       });
-      sendJson(res, 200, { ok: true, jobVersion: next.jobVersion, updatedAt: next.updatedAt });
       return;
     }
 
