@@ -9,7 +9,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = __dirname;
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(rootDir, "data");
-const uploadsDir = path.join(dataDir, "uploads");
+const attachmentsDir = process.env.ATTACHMENTS_DIR
+  ? path.resolve(process.env.ATTACHMENTS_DIR)
+  : path.join(dataDir, "attachments");
+const attachmentsBasePath = String(process.env.ATTACHMENTS_BASE_PATH || "/attachments").replace(/\/+$/, "") || "/attachments";
 const port = Number(process.env.PORT || 4173);
 
 const mimeTypes = {
@@ -42,8 +45,8 @@ const allowedAttachmentMimeTypes = new Set([
   "text/plain"
 ]);
 
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+if (!fs.existsSync(attachmentsDir)) {
+  fs.mkdirSync(attachmentsDir, { recursive: true });
 }
 
 function nowIso() {
@@ -134,7 +137,7 @@ function saveAttachment({ jobId, fileName, mimeType, contentBase64 }) {
   if (!buffer.length) {
     throw new Error("Attachment is empty");
   }
-  const jobDir = path.join(uploadsDir, `job-${jobId}`);
+  const jobDir = path.join(attachmentsDir, `job-${jobId}`);
   if (!fs.existsSync(jobDir)) {
     fs.mkdirSync(jobDir, { recursive: true });
   }
@@ -146,7 +149,7 @@ function saveAttachment({ jobId, fileName, mimeType, contentBase64 }) {
 
   return {
     attachmentName: fileName,
-    attachmentPath: `/uploads/job-${jobId}/${finalName}`,
+    attachmentPath: `${attachmentsBasePath}/job-${jobId}/${finalName}`,
     attachmentMime: mimeType
   };
 }
@@ -174,6 +177,7 @@ const db = await createDatabase({ rootDir, dataDir, hashPassword, nowIso });
 
 console.log(`Using database backend: ${db.kind}`);
 console.log(`Using data storage: ${db.storagePath}`);
+console.log(`Using attachment storage: local file store at ${attachmentsDir}`);
 
 function sendJson(res, code, payload) {
   res.writeHead(code, {
@@ -1043,12 +1047,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (url.pathname.startsWith("/uploads/")) {
+    if (url.pathname.startsWith(`${attachmentsBasePath}/`)) {
       const user = await requireUser(req, res);
       if (!user) {
         return;
       }
-      const match = url.pathname.match(/^\/uploads\/job-(\d+)\//);
+      const escapedBasePath = attachmentsBasePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = url.pathname.match(new RegExp(`^${escapedBasePath}/job-(\\d+)/`));
       const jobId = match ? Number(match[1]) : 0;
       const job = jobId ? await db.findJobById(jobId) : null;
       if (!job) {
@@ -1061,15 +1066,16 @@ const server = http.createServer(async (req, res) => {
         res.end("Forbidden");
         return;
       }
-      const uploadFilePath = path.normalize(path.join(uploadsDir, url.pathname.replace("/uploads/", "")));
-      if (!uploadFilePath.startsWith(uploadsDir) || !fs.existsSync(uploadFilePath) || fs.statSync(uploadFilePath).isDirectory()) {
+      const relativeAttachmentPath = url.pathname.slice(attachmentsBasePath.length + 1);
+      const attachmentFilePath = path.normalize(path.join(attachmentsDir, relativeAttachmentPath));
+      if (!attachmentFilePath.startsWith(attachmentsDir) || !fs.existsSync(attachmentFilePath) || fs.statSync(attachmentFilePath).isDirectory()) {
         res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
         res.end("Not found");
         return;
       }
-      const ext = path.extname(uploadFilePath).toLowerCase();
+      const ext = path.extname(attachmentFilePath).toLowerCase();
       res.writeHead(200, { "Content-Type": mimeTypes[ext] || "application/octet-stream" });
-      fs.createReadStream(uploadFilePath).pipe(res);
+      fs.createReadStream(attachmentFilePath).pipe(res);
       return;
     }
 

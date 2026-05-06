@@ -965,27 +965,17 @@
 
   function renderMetrics() {
     const jobs = appState.jobs;
-    const assigned = jobs.filter((job) => ["Assigned", "Scheduled", "In Progress"].includes(getLifecycleStage(job))).length;
+    const openJobs = jobs.filter((job) => !["Completed", "Closed"].includes(getLifecycleStage(job))).length;
+    const inProgress = jobs.filter((job) => getOperationalStatus(job) === "In Progress").length;
+    const blockers = jobs.filter((job) => Boolean(job.blockerReason) && !["Completed", "Closed"].includes(getLifecycleStage(job))).length;
+    const completedQueue = jobs.filter((job) => getLifecycleStage(job) === "Completed").length;
     const dueRisk = jobs.filter((job) => !["Completed", "Closed"].includes(getLifecycleStage(job)) && job.dueAt && new Date(job.dueAt).getTime() < Date.now()).length;
-    const lateDispatch = jobs.filter((job) => {
-      if (!job.dispatchedAt || !job.scheduledStartAt) {
-        return false;
-      }
-      return new Date(job.dispatchedAt).getTime() > new Date(job.scheduledStartAt).getTime();
-    }).length;
-    const closed = jobs.filter((job) => getLifecycleStage(job) === "Closed").length;
-    const dispatchLagHours = jobs
-      .map((job) => hoursBetween(job.scheduledStartAt, job.dispatchedAt))
-      .filter((value) => typeof value === "number" && value >= 0);
-    const avgDispatchLag = dispatchLagHours.length
-      ? Number((dispatchLagHours.reduce((sum, value) => sum + value, 0) / dispatchLagHours.length).toFixed(2))
-      : 0;
 
     elements.metricGrid.innerHTML = [
-      { label: "Tracked jobs", value: jobs.length, note: "Across upload, assignment, field execution, closeout, and history" },
-      { label: "Assigned jobs", value: assigned, note: "Visible by team or contractor for dispatching" },
-      { label: "SLA risk", value: dueRisk, note: "Active jobs now past the due date and at risk against SLA" },
-      { label: "Dispatch efficiency", value: `${avgDispatchLag}h`, note: `${lateDispatch} jobs dispatched after the scheduled time | ${closed} closed jobs` }
+      { label: "Open jobs", value: openJobs, note: "Live jobs still moving through dispatch or field work" },
+      { label: "In progress", value: inProgress, note: "Jobs crews are actively working right now" },
+      { label: "Blockers", value: blockers, note: "Jobs that need attention before they can move forward" },
+      { label: "Review queue", value: appState.session?.role === "admin" ? completedQueue : dueRisk, note: appState.session?.role === "admin" ? "Completed jobs waiting on admin closeout" : "Jobs already past due and at risk" }
     ].map((metric) => `
       <article class="metric-card">
         <p class="eyebrow">${metric.label}</p>
@@ -1073,13 +1063,12 @@
     const readyToClose = appState.jobs.filter((job) => getLifecycleStage(job) === "Completed").length;
     const shortcuts = appState.session?.role === "field"
       ? [
-          { label: "My assignment board", note: `${activeJobs} jobs visible in your workflow`, screen: "assignment" },
-          { label: "Dispatch-ready jobs", note: `${readyToDispatch} scheduled jobs waiting on morning dispatch`, screen: "assignment" },
-          { label: "Start-ready jobs", note: `${readyToStart} jobs can move into progress`, screen: "assignment" }
+          { label: "My jobs", note: `${activeJobs} live jobs in your queue`, screen: "field" },
+          { label: "Ready to start", note: `${readyToStart} jobs can move into progress`, screen: "field" }
         ]
       : [
-          { label: "Dispatch jobs", note: `${activeJobs} active jobs in circulation`, screen: "admin" },
-          { label: "Dispatch-ready crews", note: `${readyToDispatch} scheduled jobs waiting on morning dispatch`, screen: "assignment" },
+          { label: "Master jobs", note: `${activeJobs} active jobs in circulation`, screen: "admin" },
+          { label: "Dispatch board", note: `${readyToDispatch} jobs waiting on dispatch`, screen: "assignment" },
           { label: "Closeout queue", note: `${readyToClose} jobs waiting on final review`, screen: "history" }
         ];
     elements.dashboardShortcuts.innerHTML = shortcuts.map((shortcut) => `
@@ -1425,7 +1414,7 @@
       .sort((left, right) => new Date(getClosedAt(right) || 0) - new Date(getClosedAt(left) || 0));
 
     elements.historyList.innerHTML = items.length ? items.map((job) => `
-      <article class="job-card">
+      <article class="job-card compact-card">
         <div class="job-card-header">
           <div>
             <p class="eyebrow">${job.jobType}</p>
@@ -1436,22 +1425,11 @@
         <div class="job-tags">
           <span class="pill">${job.jobAddress || job.market}</span>
           <span class="pill">Closed ${formatDateTime(getClosedAt(job) || job.adminReviewedAt)}</span>
-          <span class="pill">Dispatcher: ${job.dispatcherName || "Not listed"}</span>
+          <span class="pill">${job.dispatcherName || "Dispatcher not listed"}</span>
         </div>
-        <p class="muted">${job.jobDescription || job.issue}</p>
-        <div class="detail-stack">
-          <div>
-            <p class="eyebrow">Work done</p>
-            <div class="job-tags">${renderValuePills(collectUpdateValues(job.id, "workDone"), "No work-done selections logged.")}</div>
-          </div>
-          <div>
-            <p class="eyebrow">Codes used</p>
-            <div class="job-tags">${renderValuePills(collectUpdateValues(job.id, "codesUsed"), "No codes logged.")}</div>
-          </div>
-        </div>
+        <p class="muted">Open the job to see full closeout details, update history, photos, and codes used.</p>
         <div class="job-actions">
           <button class="action-btn" data-action="open-job" data-id="${job.id}">Open job</button>
-          ${getMapsUrl(job) ? `<a class="action-btn action-link" href="${getMapsUrl(job)}" target="_blank" rel="noreferrer">Open in Maps</a>` : ""}
         </div>
       </article>
     `).join("") : emptyState("No closed jobs match the current filters.");

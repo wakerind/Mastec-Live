@@ -12,6 +12,7 @@ This folder is the live-integration workspace for a MasTec-style operations plat
 - Mobile-friendly layout for phone and desktop browsers
 - Installable app basics through a web app manifest and service worker
 - Lightweight built-in Node server with SQLite-backed shared data
+- Configurable local attachment storage path and URL base
 - Demo admin login plus invite-based user onboarding
 - Role-based administrator and field access
 
@@ -117,6 +118,7 @@ After a push, Render should redeploy automatically from:
 - `app.js` runs the browser app and connects to the shared API
 - `server.js` serves the app and shared data
 - `data/fieldsight.sqlite` stores shared users, invites, sessions, crews, and jobs
+- `ATTACHMENTS_DIR` and `ATTACHMENTS_BASE_PATH` control where job photos/files are stored and served when running the local attachment store
 - `Dockerfile` and `DEPLOYMENT.md` prepare the app for internet hosting
 - `render.yaml` prepares the app for free Render web service + free Render Postgres deployment
 - `render.sqlite.yaml` preserves the paid SQLite + persistent disk deployment path
