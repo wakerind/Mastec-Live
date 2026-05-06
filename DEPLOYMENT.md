@@ -1,120 +1,254 @@
-# Deployment
+# App Deployment Plan
 
-## Current hosting model
+## Goal
 
-This repo is now a lightweight Node.js web app with:
+`MasTec Live` should be deployed as an app-first product, not as a desktop website squeezed onto a phone.
 
-- browser frontend
-- SQLite local fallback and Postgres-ready shared storage
-- invite-based onboarding
-- admin and field roles
+That means:
+
+- concise screens
+- top-level navigation that stays available
+- minimal horizontal scrolling
+- fast field actions
+- offline-safe field workflow
+- a backend and database that remain the source of truth
+
+## Recommended release path
+
+Use a two-stage deployment plan.
+
+### Stage 1: Installable field app plus web admin
+
+This is the best MVP path with the current repo.
+
+- `Field app`
+  Ship the existing frontend as a mobile-first PWA for technicians.
+- `Admin app`
+  Keep the dispatcher/admin experience as a web app.
+- `Backend`
+  Keep the Node server as the shared API layer.
+- `Database`
+  Use Postgres for shared production data.
+- `Attachments`
+  Move photos to object storage.
+
+Why this is the right next step:
+
+- fastest path to a usable product
+- one codebase can still move quickly
+- app can be installed on phones from the browser
+- backend rules stay centralized
+- offline queueing can keep improving without a full native rewrite yet
+
+### Stage 2: Native shell when the workflow is stable
+
+Once the field workflow is proven, wrap the field app in a native shell using Capacitor.
+
+- `iPhone app`
+  Capacitor iOS shell
+- `Android app`
+  Capacitor Android shell
+- `Shared UI`
+  Reuse the mobile field frontend
+- `Backend`
+  Reuse the same Node API and database
+
+Why this comes second:
+
+- avoids spending early time on app-store packaging before the workflow is mature
+- keeps the MVP modular
+- lets us add camera, push notifications, and deeper offline controls later
+
+## Product shape
+
+The product should not feel like a mirrored admin portal.
+
+### Field app
+
+Use only a few screens:
+
+1. `Home`
+   Show sync state, next assigned job, and one main action.
+2. `My Jobs`
+   Show only active job cards with status, priority, address, and one CTA.
+3. `Job Detail`
+   Show address, map link, description, checklist, and start/close-out actions.
+4. `Close-Out`
+   Use a step flow:
+   - complete or blocked
+   - codes used
+   - summary
+   - photos
+   - submit
+5. `History`
+   Keep this light and searchable.
+6. `Activity`
+   Show a compact audit trail or sync activity, not a full admin board.
+
+### Admin web app
+
+Keep the admin side web-first:
+
+- dispatch jobs
+- review active work
+- reassign
+- review close-out queue
+- inspect audit history
+- manage users and crews
+
+## Deployment architecture
+
+### Frontend
+
+- `Field frontend`
+  Mobile-first PWA
+- `Admin frontend`
+  Same repo for now, but desktop-oriented sections stay separate in the UI
+- `Manifest + service worker`
+  Keep these for installability and caching
+
+### Backend
+
+- `Runtime`
+  Node.js web service
+- `API`
+  Shared authenticated API for job actions, notes, photos, and audit events
+- `Rules`
+  All workflow restrictions enforced server-side
+
+### Database
+
+- `Production`
+  Postgres
+- `Local dev`
+  SQLite is still okay
+
+### File storage
+
+- `Production`
+  S3, Cloudflare R2, or Supabase Storage
+- `Local dev`
+  Existing local attachment directory is fine
+
+## Hosting recommendation
+
+For a real MVP, use:
+
+- `Frontend + backend`
+  Render, Railway, or Fly.io
+- `Database`
+  Managed Postgres
+- `Object storage`
+  S3-compatible bucket
+- `App shell later`
+  Capacitor for App Store / Play Store packaging
+
+## Environment recommendation
+
+Minimum production environment:
+
+- `NODE_ENV=production`
+- `PORT`
+- `DATABASE_URL`
+- `ATTACHMENTS_BASE_PATH`
+- `ATTACHMENTS_DIR` for local fallback only
+- `SESSION_SECRET` or equivalent auth secret once auth is hardened further
+
+Recommended future additions:
+
+- `STORAGE_PROVIDER`
+- `STORAGE_BUCKET`
+- `STORAGE_REGION`
+- `STORAGE_ACCESS_KEY`
+- `STORAGE_SECRET_KEY`
+- `APP_BASE_URL`
+
+## MVP deployment checklist
+
+### 1. Backend
+
+- deploy `server.js` as a Node service
+- point it to Postgres
+- enable HTTPS
+- expose `/healthz`
+
+### 2. Database
+
+- create production Postgres database
+- migrate away from shared production SQLite
+- verify optimistic concurrency works across multiple users
+
+### 3. Storage
+
+- keep local attachments for dev only
+- move production photos to object storage
+- store only file metadata and URLs in the database
+
+### 4. Mobile installability
+
+- keep `manifest.json`
+- keep the service worker
+- verify install prompt on Android
+- verify Add to Home Screen on iPhone
+
+### 5. App UX gates before rollout
+
+- no horizontal scroll on phone
+- sticky top navigation
+- single-column mobile layout
+- concise field cards
+- close-out wizard flow
+- visible sync status
+- safe offline queue behavior
+
+## What “true app configuration” means here
+
+For this repo, a true app configuration should mean:
+
+- field users open a clean app-like shell
+- they do not see spreadsheet-like tables by default
+- they do not need to pan sideways
+- they can install it to the home screen
+- the app remains usable with weak signal
+- the backend still protects all workflow state
+
+It does **not** need to mean “native app first” yet.
+
+The right MVP is:
+
+- `PWA first`
+- `Capacitor second`
+
+## Immediate next build targets
+
+1. Finish the field close-out wizard inside the app flow.
+2. Split admin and field routing more cleanly.
+3. Move production data to Postgres.
+4. Move photo storage to object storage.
+5. Add better conflict messaging for queued offline changes.
+6. Prepare a Capacitor wrapper once the field flow is stable.
 
 ## Local run
 
+From [Mastec Live](C:\Users\yguev\OneDrive\Projects\Mastec Live):
+
 ```powershell
-cd "C:\Users\yguev\OneDrive\Projects\Mastec Live"
-node server.js
+& "C:\Program Files\nodejs\node.exe" server.js
 ```
 
-Then open `http://localhost:4173`.
+Then open:
 
-Demo admin login:
+- `http://localhost:4173`
 
-- email: `admin@fieldsight.local`
-- password: `Admin123!`
+On your phone, while on the same local network:
 
-## Internet hosting path
+- `http://YOUR-COMPUTER-IP:4173`
 
-For a simple pilot, deploy this as a Node web service on Render or Railway.
+## Current recommendation
 
-Requirements:
+Treat the current product as:
 
-- public HTTPS URL
-- environment variable `PORT` supplied by the host
-- either `DATABASE_URL` for Postgres or `DATA_DIR` for SQLite fallback
+- `web admin console`
+- `installable field app MVP`
 
-## Production notes
-
-Before selling this broadly, plan to add:
-
-- stronger password hashing
-- password reset emails
-- audit logs
-- organization/company accounts
-- database migration path to Postgres
-- branded customer domains
-
-## Render deployment
-
-This repo now includes `render.yaml` for a Render Blueprint deployment for `MasTec Live`.
-
-### What the current Render config does
-
-- creates a Node web service
-- uses `npm install` as the build command
-- uses `npm start` as the start command
-- adds a health check at `/healthz`
-- creates a free Render Postgres database
-- injects `DATABASE_URL` from that database into the app
-
-### Important note
-
-Render's docs say the Hobby workspace supports free web services and free Render Postgres databases, but free Postgres has major limits including a 30-day expiration, a 1 GB limit, and no backups. This makes it useful for testing and short pilots, not production. This is based on Render's current docs:
-
-- [Web Services](https://render.com/docs/web-services)
-- [Deploy for Free](https://render.com/docs/free)
-- [Blueprint YAML Reference](https://render.com/docs/blueprint-spec)
-- [Render Postgres](https://render.com/docs/postgresql)
-
-### How to deploy on Render
-
-1. Push this repo to GitHub.
-2. In Render, create a new Blueprint deployment from that repo.
-3. Confirm the service settings from `render.yaml`.
-4. Deploy.
-5. After the deploy finishes, use the generated `onrender.com` URL.
-
-### Exact Render dashboard clicks
-
-Current Render web-service docs say you deploy a web service from the dashboard with `New > Web Service`, and that disk, env vars, and health check live under the Advanced section. Their Blueprint docs also support repo-driven setup through `render.yaml`. Based on those current docs, the simplest click path is:
-
-1. Push this repo to GitHub.
-2. Sign in to Render.
-3. Click `New`.
-4. Choose `Blueprint`.
-5. Connect your GitHub account if needed.
-6. Select the repo that contains this project.
-7. Render should detect `render.yaml`.
-8. Review the service name, region, and free database settings.
-9. Click `Apply`.
-10. Wait for the first deploy to finish.
-11. Open the generated `https://...onrender.com` URL.
-
-If you prefer not to use Blueprints, the manual free path is:
-
-1. Click `New`.
-2. Choose `Web Service`.
-3. Select your GitHub repo.
-4. Set:
-   - Runtime: `Node`
-   - Build Command: `npm install`
-   - Start Command: `npm start`
-5. Open `Advanced`.
-6. Add:
-   - `NODE_ENV=production`
-7. Create a free Render Postgres database in the same region.
-8. Add `DATABASE_URL` to the web service using that database's connection string.
-9. Set the health check path to `/healthz`.
-10. Create the web service.
-
-### After deployment
-
-- sign in with the demo admin account once:
-  - `admin@fieldsight.local`
-  - `Admin123!`
-- create real field/admin invites from the Accounts screen
-- add a custom domain in Render when you are ready for a customer-facing URL
-
-### Paid SQLite alternative
-
-If you want the older SQLite-plus-disk deployment path instead, use `render.sqlite.yaml`. That version requires a paid Render web service because persistent disks are a paid feature.
+That is the cleanest, most modular path with the repo you already have.
