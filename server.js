@@ -9,10 +9,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = __dirname;
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(rootDir, "data");
+const storageProvider = String(process.env.STORAGE_PROVIDER || "local").trim().toLowerCase() || "local";
 const attachmentsDir = process.env.ATTACHMENTS_DIR
   ? path.resolve(process.env.ATTACHMENTS_DIR)
   : path.join(dataDir, "attachments");
 const attachmentsBasePath = String(process.env.ATTACHMENTS_BASE_PATH || "/attachments").replace(/\/+$/, "") || "/attachments";
+const awsRegion = String(process.env.AWS_REGION || "").trim();
+const s3Bucket = String(process.env.S3_BUCKET || "").trim();
+const s3Prefix = String(process.env.S3_PREFIX || "jobs").trim().replace(/^\/+|\/+$/g, "");
 const port = Number(process.env.PORT || 4173);
 
 const mimeTypes = {
@@ -44,10 +48,6 @@ const allowedAttachmentMimeTypes = new Set([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "text/plain"
 ]);
-
-if (!fs.existsSync(attachmentsDir)) {
-  fs.mkdirSync(attachmentsDir, { recursive: true });
-}
 
 function nowIso() {
   return new Date().toISOString();
@@ -129,32 +129,138 @@ function sanitizeFileSegment(value) {
   return String(value || "").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "file";
 }
 
-function saveAttachment({ jobId, fileName, mimeType, contentBase64 }) {
-  if (!allowedAttachmentMimeTypes.has(mimeType)) {
-    throw new Error("File type not supported");
-  }
-  const buffer = Buffer.from(String(contentBase64 || ""), "base64");
-  if (!buffer.length) {
-    throw new Error("Attachment is empty");
-  }
-  const jobDir = path.join(attachmentsDir, `job-${jobId}`);
-  if (!fs.existsSync(jobDir)) {
-    fs.mkdirSync(jobDir, { recursive: true });
-  }
+function toAttachmentRoute({ jobId, fileName }) {
+  return `${attachmentsBasePath}/job-${jobId}/${fileName}`;
+}
 
-  const safeName = sanitizeFileSegment(fileName);
-  const finalName = `${Date.now()}-${safeName}`;
-  const filePath = path.join(jobDir, finalName);
-  fs.writeFileSync(filePath, buffer);
+function routePathToStorageKey(routePath) {
+  const relativePath = String(routePath || "").replace(new RegExp(`^${attachmentsBasePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/?`), "");
+  return s3Prefix ? `${s3Prefix}/${relativePath}` : relativePath;
+}
 
+function getAttachmentContentType(filePath) {
+  return mimeTypes[path.extname(filePath).toLowerCase()] || "application/octet-stream";
+}
+
+async function streamToBuffer(streamLike) {
+  if (!streamLike) {
+    return Buffer.alloc(0);
+  }
+  if (typeof streamLike.transformToByteArray === "function") {
+    return Buffer.from(await streamLike.transformToByteArray());
+  }
+  const chunks = [];
+  for await (const chunk of streamLike) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+function createLocalAttachmentStorage() {
+  if (!fs.existsSync(attachmentsDir)) {
+    fs.mkdirSync(attachmentsDir, { recursive: true });
+  }
   return {
-    attachmentName: fileName,
-    attachmentPath: `${attachmentsBasePath}/job-${jobId}/${finalName}`,
-    attachmentMime: mimeType
+    description: `local file store at ${attachmentsDir}`,
+    async saveAttachment({ jobId, fileName, mimeType, contentBase64 }) {
+      if (!allowedAttachmentMimeTypes.has(mimeType)) {
+        throw new Error("File type not supported");
+      }
+      const buffer = Buffer.from(String(contentBase64 || ""), "base64");
+      if (!buffer.length) {
+        throw new Error("Attachment is empty");
+      }
+      const jobDir = path.join(attachmentsDir, `job-${jobId}`);
+      if (!fs.existsSync(jobDir)) {
+        fs.mkdirSync(jobDir, { recursive: true });
+      }
+
+      const safeName = sanitizeFileSegment(fileName);
+      const finalName = `${Date.now()}-${safeName}`;
+      const filePath = path.join(jobDir, finalName);
+      fs.writeFileSync(filePath, buffer);
+
+      return {
+        attachmentName: fileName,
+        attachmentPath: toAttachmentRoute({ jobId, fileName: finalName }),
+        attachmentMime: mimeType
+      };
+    },
+    async readAttachment(routePath) {
+      const relativeAttachmentPath = String(routePath || "").slice(attachmentsBasePath.length + 1);
+      const attachmentFilePath = path.normalize(path.join(attachmentsDir, relativeAttachmentPath));
+      if (!attachmentFilePath.startsWith(attachmentsDir) || !fs.existsSync(attachmentFilePath) || fs.statSync(attachmentFilePath).isDirectory()) {
+        return null;
+      }
+      return {
+        contentType: getAttachmentContentType(attachmentFilePath),
+        body: fs.readFileSync(attachmentFilePath)
+      };
+    }
   };
 }
 
-function saveAttachments({ jobId, attachments }) {
+async function createS3AttachmentStorage() {
+  if (!awsRegion || !s3Bucket) {
+    throw new Error("S3 attachment storage requires AWS_REGION and S3_BUCKET.");
+  }
+  const { S3Client, PutObjectCommand, GetObjectCommand } = await import("@aws-sdk/client-s3");
+  const client = new S3Client({ region: awsRegion });
+  return {
+    description: `Amazon S3 bucket ${s3Bucket}${s3Prefix ? ` (${s3Prefix})` : ""}`,
+    async saveAttachment({ jobId, fileName, mimeType, contentBase64 }) {
+      if (!allowedAttachmentMimeTypes.has(mimeType)) {
+        throw new Error("File type not supported");
+      }
+      const buffer = Buffer.from(String(contentBase64 || ""), "base64");
+      if (!buffer.length) {
+        throw new Error("Attachment is empty");
+      }
+      const safeName = sanitizeFileSegment(fileName);
+      const finalName = `${Date.now()}-${safeName}`;
+      const routePath = toAttachmentRoute({ jobId, fileName: finalName });
+      const storageKey = routePathToStorageKey(routePath);
+      await client.send(new PutObjectCommand({
+        Bucket: s3Bucket,
+        Key: storageKey,
+        Body: buffer,
+        ContentType: mimeType
+      }));
+      return {
+        attachmentName: fileName,
+        attachmentPath: routePath,
+        attachmentMime: mimeType
+      };
+    },
+    async readAttachment(routePath) {
+      try {
+        const storageKey = routePathToStorageKey(routePath);
+        const response = await client.send(new GetObjectCommand({
+          Bucket: s3Bucket,
+          Key: storageKey
+        }));
+        return {
+          contentType: response.ContentType || getAttachmentContentType(routePath),
+          body: await streamToBuffer(response.Body)
+        };
+      } catch (error) {
+        if (error?.name === "NoSuchKey" || error?.$metadata?.httpStatusCode === 404) {
+          return null;
+        }
+        throw error;
+      }
+    }
+  };
+}
+
+async function createAttachmentStorage() {
+  if (storageProvider === "s3") {
+    return createS3AttachmentStorage();
+  }
+  return createLocalAttachmentStorage();
+}
+
+async function saveAttachments({ jobId, attachments }) {
   const normalizedAttachments = Array.isArray(attachments) ? attachments : [];
   let totalBytes = 0;
   normalizedAttachments.forEach((attachment) => {
@@ -164,20 +270,24 @@ function saveAttachments({ jobId, attachments }) {
   if (totalBytes > maxAttachmentBatchBytes) {
     throw new Error("Combined attachments exceed 30MB limit");
   }
-  const saved = normalizedAttachments.map((attachment) => saveAttachment({
-    jobId,
-    fileName: attachment.fileName,
-    mimeType: attachment.mimeType,
-    contentBase64: attachment.contentBase64
-  }));
+  const saved = [];
+  for (const attachment of normalizedAttachments) {
+    saved.push(await attachmentStorage.saveAttachment({
+      jobId,
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType,
+      contentBase64: attachment.contentBase64
+    }));
+  }
   return saved;
 }
 
 const db = await createDatabase({ rootDir, dataDir, hashPassword, nowIso });
+const attachmentStorage = await createAttachmentStorage();
 
 console.log(`Using database backend: ${db.kind}`);
 console.log(`Using data storage: ${db.storagePath}`);
-console.log(`Using attachment storage: local file store at ${attachmentsDir}`);
+console.log(`Using attachment storage: ${attachmentStorage.description}`);
 
 function sendJson(res, code, payload) {
   res.writeHead(code, {
@@ -1014,7 +1124,7 @@ const server = http.createServer(async (req, res) => {
         : (body.fileName && body.mimeType && body.contentBase64
           ? [{ fileName: body.fileName, mimeType: body.mimeType, contentBase64: body.contentBase64 }]
           : []);
-      const attachments = saveAttachments({ jobId, attachments: normalizedAttachments });
+      const attachments = await saveAttachments({ jobId, attachments: normalizedAttachments });
       await db.createJobUpdate({
         jobId,
         authorName: user.name,
@@ -1066,21 +1176,19 @@ const server = http.createServer(async (req, res) => {
         res.end("Forbidden");
         return;
       }
-      const relativeAttachmentPath = url.pathname.slice(attachmentsBasePath.length + 1);
-      const attachmentFilePath = path.normalize(path.join(attachmentsDir, relativeAttachmentPath));
-      if (!attachmentFilePath.startsWith(attachmentsDir) || !fs.existsSync(attachmentFilePath) || fs.statSync(attachmentFilePath).isDirectory()) {
+      const attachmentPayload = await attachmentStorage.readAttachment(url.pathname);
+      if (!attachmentPayload || !attachmentPayload.body) {
         res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
         res.end("Not found");
         return;
       }
-      const ext = path.extname(attachmentFilePath).toLowerCase();
-      res.writeHead(200, { "Content-Type": mimeTypes[ext] || "application/octet-stream" });
-      fs.createReadStream(attachmentFilePath).pipe(res);
+      res.writeHead(200, { "Content-Type": attachmentPayload.contentType || "application/octet-stream" });
+      res.end(attachmentPayload.body);
       return;
     }
 
     if (req.method === "GET" && url.pathname === "/healthz") {
-      sendJson(res, 200, { ok: true, databaseBackend: db.kind, storage: db.storagePath });
+      sendJson(res, 200, { ok: true, databaseBackend: db.kind, storage: db.storagePath, attachmentStorage: storageProvider });
       return;
     }
 

@@ -12,7 +12,7 @@ This folder is the live-integration workspace for a MasTec-style operations plat
 - Mobile-friendly layout for phone and desktop browsers
 - Installable app basics through a web app manifest and service worker
 - Lightweight built-in Node server with SQLite-backed shared data
-- Configurable local attachment storage path and URL base
+- Configurable attachment storage with local development mode and S3-ready production mode
 - Demo admin login plus invite-based user onboarding
 - Role-based administrator and field access
 
@@ -118,7 +118,9 @@ After a push, Render should redeploy automatically from:
 - `app.js` runs the browser app and connects to the shared API
 - `server.js` serves the app and shared data
 - `data/fieldsight.sqlite` stores shared users, invites, sessions, crews, and jobs
-- `ATTACHMENTS_DIR` and `ATTACHMENTS_BASE_PATH` control where job photos/files are stored and served when running the local attachment store
+- `STORAGE_PROVIDER` selects `local` or `s3` attachment storage
+- `ATTACHMENTS_DIR` and `ATTACHMENTS_BASE_PATH` control local attachment storage and the authenticated attachment route
+- `AWS_REGION`, `S3_BUCKET`, and `S3_PREFIX` enable S3-backed job photo/file storage for production deployments
 - `Dockerfile` and `DEPLOYMENT.md` prepare the app for internet hosting
 - `render.yaml` prepares the app for free Render web service + free Render Postgres deployment
 - `render.sqlite.yaml` preserves the paid SQLite + persistent disk deployment path

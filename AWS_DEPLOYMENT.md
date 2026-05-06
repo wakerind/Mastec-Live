@@ -133,6 +133,12 @@ Replace local-disk-only attachment behavior with a storage adapter:
 - `local` for development
 - `s3` for production
 
+Status:
+
+- the repo now has env-level support for `STORAGE_PROVIDER=local|s3`
+- production S3 use expects `AWS_REGION`, `S3_BUCKET`, and optional `S3_PREFIX`
+- authenticated attachment reads still flow through the app instead of exposing raw object URLs
+
 Suggested shape:
 
 - `src/storage/local.js`
