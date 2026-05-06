@@ -99,6 +99,7 @@
     updateDialogSubmitButton: document.getElementById("updateDialogSubmitButton"),
     updateDialogBackButton: document.getElementById("updateDialogBackButton"),
     updateDialogNextButton: document.getElementById("updateDialogNextButton"),
+    updateDialogError: document.getElementById("updateDialogError"),
     closeoutSteps: document.getElementById("closeoutSteps"),
     codesChecklist: document.getElementById("codesChecklist"),
     rejectDialog: document.getElementById("rejectDialog"),
@@ -138,6 +139,26 @@
     return Array.from(document.querySelectorAll('#updateForm input[name="codesUsed"]'));
   }
 
+  function setUpdateDialogError(message = "") {
+    if (elements.updateDialogError) {
+      elements.updateDialogError.textContent = message;
+    }
+  }
+
+  function validateUpdateDialogStep(step) {
+    const submitMode = String(elements.updateForm?.elements?.submitMode?.value || "update");
+    if (submitMode !== "complete") {
+      return "";
+    }
+    if (Number(step) === 1) {
+      const note = String(elements.updateForm?.elements?.note?.value || "").trim();
+      if (!note) {
+        return "Add the close-out note before continuing.";
+      }
+    }
+    return "";
+  }
+
   function setUpdateDialogStep(step) {
     const currentStep = Math.max(1, Math.min(3, Number(step || 1)));
     if (elements.updateForm?.elements?.dialogStep) {
@@ -158,6 +179,7 @@
     if (elements.updateDialogSubmitButton) {
       elements.updateDialogSubmitButton.classList.toggle("hidden", currentStep !== 3 && elements.updateForm.elements.submitMode.value === "complete");
     }
+    setUpdateDialogError("");
   }
 
   function getStatusClass(value) {
@@ -2168,6 +2190,9 @@
   function openUpdateDialog(jobId, options = {}) {
     const job = appState.jobs.find((item) => String(item.id) === String(jobId));
     const mode = options.mode || "update";
+    if (elements.updateDialog.open) {
+      elements.updateDialog.close();
+    }
     elements.updateForm.elements.jobId.value = String(jobId);
     elements.updateForm.elements.submitMode.value = mode;
     elements.updateForm.elements.note.value = "";
@@ -2179,6 +2204,7 @@
       input.checked = false;
       input.closest(".code-option")?.classList.remove("hidden");
     });
+    setUpdateDialogError("");
     if (job && canFieldDispatch(job)) {
       elements.updateForm.elements.updateType.value = "Dispatched";
     }
@@ -2758,6 +2784,14 @@
     });
     elements.updateDialogNextButton?.addEventListener("click", () => {
       const currentStep = Number(elements.updateForm.elements.dialogStep.value || 1);
+      const errorMessage = validateUpdateDialogStep(currentStep);
+      if (errorMessage) {
+        setUpdateDialogError(errorMessage);
+        if (currentStep === 1) {
+          elements.updateForm.elements.note.focus();
+        }
+        return;
+      }
       setUpdateDialogStep(currentStep + 1);
     });
     elements.closeRejectDialog.addEventListener("click", () => {
@@ -2942,6 +2976,13 @@
       const form = new FormData(elements.updateForm);
       const jobId = Number(form.get("jobId"));
       const submitMode = String(form.get("submitMode") || "update");
+      const currentStep = Number(form.get("dialogStep") || 3);
+      const errorMessage = validateUpdateDialogStep(currentStep);
+      if (errorMessage) {
+        setUpdateDialogError(errorMessage);
+        elements.updateForm.elements.note.focus();
+        return;
+      }
       const attachments = await filesToPayload(elements.updateForm.elements.attachment.files);
       const codesUsed = getCodesUsedInputs().filter((input) => input.checked).map((input) => input.value);
       const result = await sendQueuedMutation({

@@ -1252,6 +1252,11 @@ button:hover {
   gap: 14px;
 }
 
+.dialog-error {
+  margin: 0 0 12px;
+  text-align: center;
+}
+
 .codes-checklist {
   display: grid;
   gap: 8px;
