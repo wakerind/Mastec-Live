@@ -2452,7 +2452,7 @@
     elements.jobDetailForm.elements.adminApproved.checked = isAdminApproved(job);
     elements.jobDetailForm.elements.adminReviewed.checked = isAdminReviewed(job);
     elements.jobWorkflowControls.classList.toggle("hidden", !isAdmin);
-    elements.jobFieldActions.classList.toggle("hidden", isAdmin);
+    elements.jobFieldActions.classList.remove("hidden");
     elements.saveJobDetailButton.classList.toggle("hidden", !isAdmin);
     elements.jobDetailStageSelect.disabled = !isAdmin;
     elements.jobDetailAssigneeSelect.disabled = !isAdmin;
@@ -2472,7 +2472,14 @@
       </div>
     `;
     const needsUpdateBeforeComplete = isAccepted(job) && getOperationalStatus(job) === "In Progress" && getJobUpdates(job.id).length === 0;
-    elements.jobFieldActionsList.innerHTML = isAdmin ? "" : `
+    elements.jobFieldActionsList.innerHTML = isAdmin ? `
+      ${canFieldStart(job) ? `<button class="action-btn" type="button" data-action="start-job" data-id="${job.id}">Start for crew</button>` : ""}
+      ${canFieldComplete(job) ? `<button class="action-btn" type="button" data-action="complete-job" data-id="${job.id}">Complete for crew</button>` : ""}
+      <button class="action-btn" type="button" data-action="log-update" data-id="${job.id}">Add update</button>
+      ${job.blockerReason
+        ? `<button class="action-btn" type="button" data-action="clear-blocker" data-id="${job.id}">Clear blocker</button>`
+        : `<button class="action-btn" type="button" data-action="add-blocker" data-id="${job.id}">Add blocker</button>`}
+    ` : `
       ${canFieldAccept(job) ? `<button class="action-btn" type="button" data-action="accept-job" data-id="${job.id}">Accept job</button>` : ""}
       ${canFieldDispatch(job) ? `<button class="action-btn" type="button" data-action="dispatch-job" data-id="${job.id}">Dispatch</button>` : ""}
       ${canFieldStart(job) ? `<button class="action-btn" type="button" data-action="start-job" data-id="${job.id}">Start job</button>` : ""}
