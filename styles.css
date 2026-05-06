@@ -1222,6 +1222,36 @@ button:hover {
   color: var(--muted);
 }
 
+.closeout-steps {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin: 8px 0 18px;
+}
+
+.closeout-step {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.closeout-step.active {
+  background: #2d66e0;
+  border-color: #2d66e0;
+  color: #ffffff;
+}
+
+.closeout-panel {
+  display: grid;
+  gap: 14px;
+}
+
 .codes-checklist {
   display: grid;
   gap: 8px;

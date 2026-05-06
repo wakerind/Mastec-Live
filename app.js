@@ -97,6 +97,9 @@
     cancelUpdateDialog: document.getElementById("cancelUpdateDialog"),
     updateDialogTitle: document.getElementById("updateDialogTitle"),
     updateDialogSubmitButton: document.getElementById("updateDialogSubmitButton"),
+    updateDialogBackButton: document.getElementById("updateDialogBackButton"),
+    updateDialogNextButton: document.getElementById("updateDialogNextButton"),
+    closeoutSteps: document.getElementById("closeoutSteps"),
     codesChecklist: document.getElementById("codesChecklist"),
     rejectDialog: document.getElementById("rejectDialog"),
     rejectForm: document.getElementById("rejectForm"),
@@ -133,6 +136,28 @@
 
   function getCodesUsedInputs() {
     return Array.from(document.querySelectorAll('#updateForm input[name="codesUsed"]'));
+  }
+
+  function setUpdateDialogStep(step) {
+    const currentStep = Math.max(1, Math.min(3, Number(step || 1)));
+    if (elements.updateForm?.elements?.dialogStep) {
+      elements.updateForm.elements.dialogStep.value = String(currentStep);
+    }
+    document.querySelectorAll("[data-closeout-step]").forEach((panel) => {
+      panel.classList.toggle("hidden", Number(panel.dataset.closeoutStep) !== currentStep);
+    });
+    document.querySelectorAll("[data-step-indicator]").forEach((indicator) => {
+      indicator.classList.toggle("active", Number(indicator.dataset.stepIndicator) === currentStep);
+    });
+    if (elements.updateDialogBackButton) {
+      elements.updateDialogBackButton.classList.toggle("hidden", currentStep === 1);
+    }
+    if (elements.updateDialogNextButton) {
+      elements.updateDialogNextButton.classList.toggle("hidden", currentStep === 3 || elements.updateForm.elements.submitMode.value !== "complete");
+    }
+    if (elements.updateDialogSubmitButton) {
+      elements.updateDialogSubmitButton.classList.toggle("hidden", currentStep !== 3 && elements.updateForm.elements.submitMode.value === "complete");
+    }
   }
 
   function getStatusClass(value) {
@@ -2162,6 +2187,7 @@
     }
     if (mode === "complete") {
       elements.updateForm.elements.updateType.value = "Closeout";
+      elements.closeoutSteps?.classList.remove("hidden");
       if (elements.updateDialogTitle) {
         elements.updateDialogTitle.textContent = "Complete job";
       }
@@ -2169,7 +2195,9 @@
         elements.updateDialogSubmitButton.textContent = "Submit close-out";
       }
       elements.updateForm.elements.note.placeholder = "What was completed on this job?";
+      setUpdateDialogStep(1);
     } else {
+      elements.closeoutSteps?.classList.add("hidden");
       if (elements.updateDialogTitle) {
         elements.updateDialogTitle.textContent = "Add field update";
       }
@@ -2177,6 +2205,7 @@
         elements.updateDialogSubmitButton.textContent = "Save update";
       }
       elements.updateForm.elements.note.placeholder = "What changed on this job?";
+      setUpdateDialogStep(3);
     }
     elements.updateDialog.showModal();
   }
@@ -2723,6 +2752,14 @@
     elements.cancelAssignDialog.addEventListener("click", () => elements.assignDialog.close());
     elements.closeUpdateDialog.addEventListener("click", () => elements.updateDialog.close());
     elements.cancelUpdateDialog.addEventListener("click", () => elements.updateDialog.close());
+    elements.updateDialogBackButton?.addEventListener("click", () => {
+      const currentStep = Number(elements.updateForm.elements.dialogStep.value || 1);
+      setUpdateDialogStep(currentStep - 1);
+    });
+    elements.updateDialogNextButton?.addEventListener("click", () => {
+      const currentStep = Number(elements.updateForm.elements.dialogStep.value || 1);
+      setUpdateDialogStep(currentStep + 1);
+    });
     elements.closeRejectDialog.addEventListener("click", () => {
       elements.rejectError.textContent = "";
       elements.rejectDialog.close();

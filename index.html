@@ -364,34 +364,48 @@
       </div>
       <input type="hidden" name="jobId">
       <input type="hidden" name="submitMode" value="update">
+      <input type="hidden" name="dialogStep" value="1">
+      <div class="closeout-steps hidden" id="closeoutSteps">
+        <span class="closeout-step active" data-step-indicator="1">1</span>
+        <span class="closeout-step" data-step-indicator="2">2</span>
+        <span class="closeout-step" data-step-indicator="3">3</span>
+      </div>
       <div class="dialog-grid">
-        <label>Update type<input name="updateType" list="updateTypeOptions" required></label>
-        <label>Work done<input name="workDone" list="workDoneOptions" placeholder="Search work done"></label>
-        <label class="span-2">Search codes
-          <input name="codesUsedSearch" id="codesUsedSearch" placeholder="Type to filter code options">
-        </label>
-        <label class="span-2">Codes used
-          <div class="codes-checklist" id="codesChecklist">
-            <label class="code-option"><input type="checkbox" name="codesUsed" value="SPL - Splice"><span>SPL - Splice</span></label>
-            <label class="code-option"><input type="checkbox" name="codesUsed" value="TST - Tested"><span>TST - Tested</span></label>
-            <label class="code-option"><input type="checkbox" name="codesUsed" value="RPR - Repair"><span>RPR - Repair</span></label>
-            <label class="code-option"><input type="checkbox" name="codesUsed" value="NEW - New Install"><span>NEW - New Install</span></label>
-            <label class="code-option"><input type="checkbox" name="codesUsed" value="TRC - Troubleshoot"><span>TRC - Troubleshoot</span></label>
-            <label class="code-option"><input type="checkbox" name="codesUsed" value="LOC - Locate"><span>LOC - Locate</span></label>
-            <label class="code-option"><input type="checkbox" name="codesUsed" value="MTR - Material Used"><span>MTR - Material Used</span></label>
-            <label class="code-option"><input type="checkbox" name="codesUsed" value="INS - Inspection"><span>INS - Inspection</span></label>
-            <label class="code-option"><input type="checkbox" name="codesUsed" value="OTH - Other"><span>OTH - Other</span></label>
-          </div>
-        </label>
-        <label class="span-2">Update note
-          <input name="note" placeholder="What changed on this job?" required>
-        </label>
-        <label class="span-2">Attachment
-          <input name="attachment" type="file" multiple accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx,.txt,image/jpeg,image/png,application/pdf">
-        </label>
+        <div class="closeout-panel span-2" data-closeout-step="1">
+          <label>Update type<input name="updateType" list="updateTypeOptions" required></label>
+          <label>Work done<input name="workDone" list="workDoneOptions" placeholder="Search work done"></label>
+          <label>Update note
+            <input name="note" placeholder="What changed on this job?" required>
+          </label>
+        </div>
+        <div class="closeout-panel span-2 hidden" data-closeout-step="2">
+          <label>Search codes
+            <input name="codesUsedSearch" id="codesUsedSearch" placeholder="Type to filter code options">
+          </label>
+          <label>Codes used
+            <div class="codes-checklist" id="codesChecklist">
+              <label class="code-option"><input type="checkbox" name="codesUsed" value="SPL - Splice"><span>SPL - Splice</span></label>
+              <label class="code-option"><input type="checkbox" name="codesUsed" value="TST - Tested"><span>TST - Tested</span></label>
+              <label class="code-option"><input type="checkbox" name="codesUsed" value="RPR - Repair"><span>RPR - Repair</span></label>
+              <label class="code-option"><input type="checkbox" name="codesUsed" value="NEW - New Install"><span>NEW - New Install</span></label>
+              <label class="code-option"><input type="checkbox" name="codesUsed" value="TRC - Troubleshoot"><span>TRC - Troubleshoot</span></label>
+              <label class="code-option"><input type="checkbox" name="codesUsed" value="LOC - Locate"><span>LOC - Locate</span></label>
+              <label class="code-option"><input type="checkbox" name="codesUsed" value="MTR - Material Used"><span>MTR - Material Used</span></label>
+              <label class="code-option"><input type="checkbox" name="codesUsed" value="INS - Inspection"><span>INS - Inspection</span></label>
+              <label class="code-option"><input type="checkbox" name="codesUsed" value="OTH - Other"><span>OTH - Other</span></label>
+            </div>
+          </label>
+        </div>
+        <div class="closeout-panel span-2 hidden" data-closeout-step="3">
+          <label>Attachment
+            <input name="attachment" type="file" multiple accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx,.txt,image/jpeg,image/png,application/pdf">
+          </label>
+        </div>
       </div>
       <menu class="dialog-actions">
         <button class="secondary-btn" type="button" id="cancelUpdateDialog">Cancel</button>
+        <button class="secondary-btn hidden" type="button" id="updateDialogBackButton">Back</button>
+        <button class="primary-btn hidden" type="button" id="updateDialogNextButton">Continue</button>
         <button class="primary-btn" type="submit" id="updateDialogSubmitButton">Save update</button>
       </menu>
     </form>
