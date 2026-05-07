@@ -1020,6 +1020,20 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/admin/reset-demo-data") {
+      const user = await requireAdmin(req, res);
+      if (!user) {
+        return;
+      }
+      if (typeof db.resetDemoData !== "function") {
+        sendJson(res, 501, { error: "Demo reset is not available for this database backend" });
+        return;
+      }
+      await db.resetDemoData();
+      sendJson(res, 200, { ok: true, message: "Demo data reset to the current Miami sample set." });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/jobs") {
       const user = await requireAdmin(req, res);
       if (!user) {

@@ -685,6 +685,110 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
       }
       return updateId;
     },
+    async resetDemoData() {
+      const adminSeed = seedUsers[0];
+      const fieldSeed = seedUsers[1];
+      const [crewName, crewType, crewCapacity, crewNote, crewContactName, crewContactEmail, crewContactPhone, crewCoverageArea] = seedCrews[0];
+
+      await pool.query("BEGIN");
+      try {
+        await pool.query("DELETE FROM job_update_attachments");
+        await pool.query("DELETE FROM job_updates");
+        await pool.query("DELETE FROM job_stage_events");
+        await pool.query("DELETE FROM job_audit_events");
+        await pool.query("DELETE FROM jobs");
+        await pool.query("DELETE FROM sessions");
+        await pool.query("DELETE FROM invites");
+
+        const existingAdmin = await pool.query("SELECT id FROM users WHERE email = $1", [adminSeed.email]);
+        if (existingAdmin.rows.length) {
+          await pool.query(`
+            UPDATE users
+            SET name = $1, role = 'admin', status = 'active', phone = $2, office_address = $3, zone_of_work = $4, note = $5
+            WHERE email = $6
+          `, [adminSeed.name, "(305) 555-0100", "Miami, FL", "Dispatch", "Primary admin login for the Miami demo environment.", adminSeed.email]);
+        } else {
+          await pool.query(`
+            INSERT INTO users (email, password_hash, name, role, status, phone, office_address, zone_of_work, note, created_at)
+            VALUES ($1, $2, $3, 'admin', 'active', $4, $5, $6, $7, $8::timestamptz)
+          `, [adminSeed.email, hashPassword(adminSeed.password), adminSeed.name, "(305) 555-0100", "Miami, FL", "Dispatch", "Primary admin login for the Miami demo environment.", nowIso()]);
+        }
+
+        const existingField = await pool.query("SELECT id FROM users WHERE email = $1", [fieldSeed.email]);
+        if (existingField.rows.length) {
+          await pool.query(`
+            UPDATE users
+            SET name = $1, role = 'field', status = 'active', phone = $2, office_address = $3, zone_of_work = $4, note = $5
+            WHERE email = $6
+          `, [fieldSeed.name, "(305) 555-0142", "Miami, FL", "Miami-Dade County", "Only field account kept in this demo environment.", fieldSeed.email]);
+        } else {
+          await pool.query(`
+            INSERT INTO users (email, password_hash, name, role, status, phone, office_address, zone_of_work, note, created_at)
+            VALUES ($1, $2, $3, 'field', 'active', $4, $5, $6, $7, $8::timestamptz)
+          `, [fieldSeed.email, hashPassword(fieldSeed.password), fieldSeed.name, "(305) 555-0142", "Miami, FL", "Miami-Dade County", "Only field account kept in this demo environment.", nowIso()]);
+        }
+        await pool.query("DELETE FROM users WHERE role = 'field' AND email != $1", [fieldSeed.email]);
+
+        await pool.query("DELETE FROM crews WHERE name != $1", [crewName]);
+        const existingCrew = await pool.query("SELECT id FROM crews WHERE name = $1", [crewName]);
+        if (existingCrew.rows.length) {
+          await pool.query(`
+            UPDATE crews
+            SET type = $1, capacity = $2, note = $3, contact_name = $4, contact_email = $5, contact_phone = $6, coverage_area = $7, office_address = $8
+            WHERE id = $9
+          `, [crewType, crewCapacity, crewNote, crewContactName, crewContactEmail, crewContactPhone, crewCoverageArea, "Miami, FL", existingCrew.rows[0].id]);
+        } else {
+          await pool.query(`
+            INSERT INTO crews (name, type, capacity, note, contact_name, contact_email, contact_phone, coverage_area, office_address)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          `, [crewName, crewType, crewCapacity, crewNote, crewContactName, crewContactEmail, crewContactPhone, crewCoverageArea, "Miami, FL"]);
+        }
+
+        const admin = await pool.query("SELECT id FROM users WHERE email = $1", [adminSeed.email]);
+        for (const job of seedJobs) {
+          const createdAt = nowIso();
+          const inserted = await pool.query(`
+            INSERT INTO jobs (
+              title, market, requested_by, job_address, job_type, job_description, priority, intake_status, due_at, assignment_at, scheduled_start_at,
+              assigned_to, dispatcher_name, dispatcher_phone, field_status, completion, budget, job_value, labor_cost, planned_hours,
+              actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, dispatched_at, started_at, completed_at, admin_reviewed_at, rejected_at, rejection_reason, issue, quality_score, duration_variance, updated_at, job_version, created_at, created_by_user_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'Uploaded', $8::timestamptz, $9::timestamptz, $10::timestamptz, NULL, $11, $12, 'Uploaded', 0, $13, $14, $15, $16, 0, '', '', 'Uploaded', FALSE, NULL, NULL, NULL, NULL, NULL, NULL, '', $17, $18, 0, $19::timestamptz, 1, $20::timestamptz, $21)
+            RETURNING id
+          `, [
+            job.title,
+            job.market,
+            job.requestedBy,
+            job.jobAddress || "",
+            job.jobType,
+            job.jobDescription || "",
+            job.priority,
+            job.scheduledStartAt,
+            createdAt,
+            job.scheduledStartAt,
+            job.dispatcherName || job.requestedBy || "",
+            job.dispatcherPhone || "",
+            Number(job.jobValue || 0) / 1000000,
+            Number(job.jobValue || 0),
+            Number(job.laborCost || 0),
+            Number(job.plannedHours || 8),
+            "Job uploaded and waiting for dispatcher review and assignment.",
+            Number(job.qualityScore || 90),
+            createdAt,
+            createdAt,
+            admin.rows[0].id
+          ]);
+          await pool.query(`
+            INSERT INTO job_stage_events (job_id, stage, entered_at, exited_at, actor_role, actor_name)
+            VALUES ($1, $2, $3::timestamptz, NULL, $4, $5)
+          `, [Number(inserted.rows[0].id), "Uploaded", createdAt, "admin", adminSeed.name]);
+        }
+
+        await pool.query("COMMIT");
+      } catch (error) {
+        await pool.query("ROLLBACK");
+        throw error;
+      }
+    },
     async recordJobAuditEvent({ jobId, action, actorRole, actorName, source, deviceTime, serverTime, previousState, nextState, changedFields }) {
       await pool.query(`
         INSERT INTO job_audit_events (job_id, action, actor_role, actor_name, source, device_time, server_time, previous_state, next_state, changed_fields)

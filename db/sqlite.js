@@ -853,6 +853,129 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
       });
       return Number(result.lastInsertRowid);
     },
+    async resetDemoData() {
+      const adminSeed = seedUsers[0];
+      const fieldSeed = seedUsers[1];
+      const [crewName, crewType, crewCapacity, crewNote, crewContactName, crewContactEmail, crewContactPhone, crewCoverageArea] = seedCrews[0];
+
+      db.exec("BEGIN");
+      try {
+        db.prepare("DELETE FROM job_update_attachments").run();
+        db.prepare("DELETE FROM job_updates").run();
+        db.prepare("DELETE FROM job_stage_events").run();
+        db.prepare("DELETE FROM job_audit_events").run();
+        db.prepare("DELETE FROM jobs").run();
+        db.prepare("DELETE FROM sessions").run();
+        db.prepare("DELETE FROM invites").run();
+
+        const existingAdmin = db.prepare("SELECT id FROM users WHERE email = ?").get(adminSeed.email);
+        if (existingAdmin) {
+          db.prepare(`
+            UPDATE users
+            SET name = ?, role = 'admin', status = 'active', phone = ?, office_address = ?, zone_of_work = ?, note = ?
+            WHERE email = ?
+          `).run(adminSeed.name, "(305) 555-0100", "Miami, FL", "Dispatch", "Primary admin login for the Miami demo environment.", adminSeed.email);
+        } else {
+          db.prepare(`
+            INSERT INTO users (email, password_hash, name, role, status, phone, office_address, zone_of_work, note, created_at)
+            VALUES (?, ?, ?, 'admin', 'active', ?, ?, ?, ?, ?)
+          `).run(adminSeed.email, hashPassword(adminSeed.password), adminSeed.name, "(305) 555-0100", "Miami, FL", "Dispatch", "Primary admin login for the Miami demo environment.", nowIso());
+        }
+
+        const existingField = db.prepare("SELECT id FROM users WHERE email = ?").get(fieldSeed.email);
+        if (existingField) {
+          db.prepare(`
+            UPDATE users
+            SET name = ?, role = 'field', status = 'active', phone = ?, office_address = ?, zone_of_work = ?, note = ?
+            WHERE email = ?
+          `).run(fieldSeed.name, "(305) 555-0142", "Miami, FL", "Miami-Dade County", "Only field account kept in this demo environment.", fieldSeed.email);
+        } else {
+          db.prepare(`
+            INSERT INTO users (email, password_hash, name, role, status, phone, office_address, zone_of_work, note, created_at)
+            VALUES (?, ?, ?, 'field', 'active', ?, ?, ?, ?, ?)
+          `).run(fieldSeed.email, hashPassword(fieldSeed.password), fieldSeed.name, "(305) 555-0142", "Miami, FL", "Miami-Dade County", "Only field account kept in this demo environment.", nowIso());
+        }
+        db.prepare("DELETE FROM users WHERE role = 'field' AND email != ?").run(fieldSeed.email);
+
+        db.prepare("DELETE FROM crews WHERE name != ?").run(crewName);
+        const existingCrew = db.prepare("SELECT id FROM crews WHERE name = ?").get(crewName);
+        if (existingCrew) {
+          db.prepare(`
+            UPDATE crews
+            SET type = ?, capacity = ?, note = ?, contact_name = ?, contact_email = ?, contact_phone = ?, coverage_area = ?, office_address = ?
+            WHERE id = ?
+          `).run(crewType, crewCapacity, crewNote, crewContactName, crewContactEmail, crewContactPhone, crewCoverageArea, "Miami, FL", existingCrew.id);
+        } else {
+          db.prepare(`
+            INSERT INTO crews (name, type, capacity, note, contact_name, contact_email, contact_phone, coverage_area, office_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(crewName, crewType, crewCapacity, crewNote, crewContactName, crewContactEmail, crewContactPhone, crewCoverageArea, "Miami, FL");
+        }
+
+        const admin = db.prepare("SELECT id FROM users WHERE email = ?").get(adminSeed.email);
+        const insertJob = db.prepare(`
+          INSERT INTO jobs (
+            title, market, requested_by, job_address, job_type, job_description, priority, intake_status, due_at, assignment_at, scheduled_start_at,
+            assigned_to, dispatcher_name, dispatcher_phone, field_status, completion, budget, job_value, labor_cost, planned_hours,
+            actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, dispatched_at, started_at, completed_at, admin_reviewed_at, rejected_at, rejection_reason, issue, quality_score, duration_variance, updated_at, job_version, created_at, created_by_user_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const insertStage = db.prepare(`
+          INSERT INTO job_stage_events (job_id, stage, entered_at, exited_at, actor_role, actor_name)
+          VALUES (?, ?, ?, NULL, ?, ?)
+        `);
+        seedJobs.forEach((job) => {
+          const createdAt = nowIso();
+          const result = insertJob.run(
+            job.title,
+            job.market,
+            job.requestedBy,
+            job.jobAddress || "",
+            job.jobType,
+            job.jobDescription || "",
+            job.priority,
+            "Uploaded",
+            job.scheduledStartAt,
+            createdAt,
+            job.scheduledStartAt,
+            null,
+            job.dispatcherName || job.requestedBy || "",
+            job.dispatcherPhone || "",
+            "Uploaded",
+            0,
+            Number(job.jobValue || 0) / 1000000,
+            Number(job.jobValue || 0),
+            Number(job.laborCost || 0),
+            Number(job.plannedHours || 8),
+            0,
+            "",
+            "",
+            "Uploaded",
+            0,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "",
+            "Job uploaded and waiting for dispatcher review and assignment.",
+            Number(job.qualityScore || 90),
+            0,
+            createdAt,
+            1,
+            createdAt,
+            admin.id
+          );
+          insertStage.run(Number(result.lastInsertRowid), "Uploaded", createdAt, "admin", adminSeed.name);
+        });
+
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    },
     async recordJobAuditEvent({ jobId, action, actorRole, actorName, source, deviceTime, serverTime, previousState, nextState, changedFields }) {
       db.prepare(`
         INSERT INTO job_audit_events (job_id, action, actor_role, actor_name, source, device_time, server_time, previous_state, next_state, changed_fields)
