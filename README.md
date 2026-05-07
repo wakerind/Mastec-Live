@@ -50,6 +50,24 @@ Anyone on the same Wi-Fi or local network can open:
 
 This is the mode to use when administrators and field users need to share the same jobs and updates.
 
+## Important about GitHub hosting
+
+`GitHub` by itself does not run the real app backend for this project.
+
+If you only upload the frontend files to a static site, you are not testing:
+
+- the live database
+- the real accounts
+- the job workflow API
+- the shared admin and field state
+
+To test the real app online, deploy the repo to a service that runs `server.js` and the database.
+
+Use:
+
+- [render.yaml](C:\Users\yguev\OneDrive\Projects\Mastec%20Live\render.yaml) for a simple real backend deployment
+- [RENDER_DEPLOYMENT.md](C:\Users\yguev\OneDrive\Projects\Mastec%20Live\RENDER_DEPLOYMENT.md) for the exact setup path
+
 Demo admin login:
 
 - email: `admin@fieldsight.local`
