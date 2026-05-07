@@ -360,25 +360,53 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
     const admin = db.prepare("SELECT id FROM users WHERE email = ?").get(seedUsers[0].email);
     const insertJob = db.prepare(`
       INSERT INTO jobs (
-        title, market, requested_by, job_type, priority, intake_status, scheduled_start_at,
+        title, market, requested_by, job_address, job_type, job_description, priority, intake_status, due_at, assignment_at, scheduled_start_at,
         assigned_to, field_status, completion, budget, job_value, labor_cost, planned_hours,
-        actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, started_at, admin_reviewed_at, issue, quality_score, duration_variance, created_at, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, dispatched_at, started_at, completed_at, admin_reviewed_at, rejected_at, rejection_reason, dispatcher_name, dispatcher_phone, issue, quality_score, duration_variance, updated_at, job_version, created_at, created_by_user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     seedJobs.forEach((job) => {
-      const [title, market, requestedBy, jobType, priority, intakeStatus, scheduledStartAt, assignedTo, fieldStatus, completion, jobValue, laborCost, plannedHours, actualHours, blockerReason, issue, qualityScore, durationVariance] = job;
+      const {
+        title,
+        market,
+        requestedBy,
+        jobAddress = "",
+        jobType,
+        jobDescription = "",
+        priority,
+        intakeStatus,
+        scheduledStartAt,
+        assignedTo = null,
+        fieldStatus = "Uploaded",
+        completion = 0,
+        jobValue = 0,
+        laborCost = 0,
+        plannedHours = 8,
+        actualHours = 0,
+        blockerReason = "",
+        dispatcherName = "",
+        dispatcherPhone = "",
+        issue = "",
+        qualityScore = 90,
+        durationVariance = 0
+      } = job;
       const lifecycleStage = fieldStatus === "Completed"
         ? "Completed"
         : assignedTo
           ? "Assigned"
           : "Uploaded";
+      const createdAt = nowIso();
       const result = insertJob.run(
         title,
         market,
         requestedBy,
+        jobAddress,
         jobType,
+        jobDescription,
         priority,
         intakeStatus,
+        scheduledStartAt,
+        createdAt,
         scheduledStartAt,
         assignedTo,
         fieldStatus,
@@ -395,16 +423,24 @@ export async function createSqliteAdapter({ dataDir, dbFile, hashPassword, nowIs
         null,
         null,
         null,
+        null,
+        null,
+        null,
+        "",
+        dispatcherName || requestedBy || "",
+        dispatcherPhone,
         issue,
         qualityScore,
         durationVariance,
-        nowIso(),
+        createdAt,
+        1,
+        createdAt,
         admin.id
       );
       db.prepare(`
         INSERT INTO job_stage_events (job_id, stage, entered_at, exited_at, actor_role, actor_name)
         VALUES (?, ?, ?, NULL, ?, ?)
-      `).run(Number(result.lastInsertRowid), lifecycleStage, nowIso(), "system", "Seed import");
+      `).run(Number(result.lastInsertRowid), lifecycleStage, createdAt, "system", "Seed import");
     });
   }
 

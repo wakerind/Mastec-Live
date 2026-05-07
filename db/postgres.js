@@ -179,25 +179,53 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
   if (!jobCount) {
     const admin = await pool.query("SELECT id FROM users WHERE email = $1", [seedUsers[0].email]);
     for (const job of seedJobs) {
-      const [title, market, requestedBy, jobType, priority, intakeStatus, scheduledStartAt, assignedTo, fieldStatus, completion, jobValue, laborCost, plannedHours, actualHours, blockerReason, issue, qualityScore, durationVariance] = job;
+      const {
+        title,
+        market,
+        requestedBy,
+        jobAddress = "",
+        jobType,
+        jobDescription = "",
+        priority,
+        intakeStatus,
+        scheduledStartAt,
+        assignedTo = null,
+        fieldStatus = "Uploaded",
+        completion = 0,
+        jobValue = 0,
+        laborCost = 0,
+        plannedHours = 8,
+        actualHours = 0,
+        blockerReason = "",
+        dispatcherName = "",
+        dispatcherPhone = "",
+        issue = "",
+        qualityScore = 90,
+        durationVariance = 0
+      } = job;
       const lifecycleStage = fieldStatus === "Completed"
         ? "Completed"
         : assignedTo
           ? "Assigned"
           : "Uploaded";
+      const createdAt = nowIso();
       const inserted = await pool.query(`
         INSERT INTO jobs (
-          title, market, requested_by, job_type, priority, intake_status, scheduled_start_at,
+          title, market, requested_by, job_address, job_type, job_description, priority, intake_status, due_at, assignment_at, scheduled_start_at,
           assigned_to, field_status, completion, budget, job_value, labor_cost, planned_hours,
-          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, started_at, admin_reviewed_at, issue, quality_score, duration_variance, created_at, created_by_user_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+          actual_hours, blocker_reason, blocker_stage, lifecycle_stage, admin_approved, accepted_at, dispatched_at, started_at, completed_at, admin_reviewed_at, rejected_at, rejection_reason, dispatcher_name, dispatcher_phone, issue, quality_score, duration_variance, updated_at, job_version, created_at, created_by_user_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, $11::timestamptz, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38::timestamptz, $39, $40::timestamptz, $41)
       `, [
         title,
         market,
         requestedBy,
+        jobAddress,
         jobType,
+        jobDescription,
         priority,
         intakeStatus,
+        scheduledStartAt,
+        createdAt,
         scheduledStartAt,
         assignedTo,
         fieldStatus,
@@ -214,16 +242,24 @@ export async function createPostgresAdapter({ databaseUrl, hashPassword, nowIso,
         null,
         null,
         null,
+        null,
+        null,
+        null,
+        "",
+        dispatcherName || requestedBy || "",
+        dispatcherPhone,
         issue,
         qualityScore,
         durationVariance,
-        nowIso(),
+        createdAt,
+        1,
+        createdAt,
         admin.rows[0].id
       ]);
       await pool.query(`
         INSERT INTO job_stage_events (job_id, stage, entered_at, exited_at, actor_role, actor_name)
         VALUES ($1, $2, $3, NULL, $4, $5)
-      `, [Number(inserted.rows[0].id), lifecycleStage, nowIso(), "system", "Seed import"]);
+      `, [Number(inserted.rows[0].id), lifecycleStage, createdAt, "system", "Seed import"]);
     }
   }
 
