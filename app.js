@@ -1,12 +1,12 @@
 (function () {
   const authStorageKey = "fieldsight-auth-token";
-  const appStateCacheKey = "mastec-dispatch-app-state";
+  const appStateCacheKey = "mastec-dispatch-app-state-v2";
   const visibleLifecycleStages = ["Uploaded", "Assigned", "Scheduled", "In Progress", "Completed", "Closed"];
   const editableLifecycleStages = ["Uploaded", "Assigned", "Scheduled", "In Progress", "Completed", "Closed"];
   const maxAttachmentBatchBytes = 30 * 1024 * 1024;
   const dragMimeType = "application/x-fieldsight-job-id";
   const displayTimeZone = "America/New_York";
-  const syncDbName = "mastec-dispatch-sync";
+  const syncDbName = "mastec-dispatch-sync-v2";
   const syncStoreName = "mutationQueue";
   const syncState = {
     pendingCount: 0,
